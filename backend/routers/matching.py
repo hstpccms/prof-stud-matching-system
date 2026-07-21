@@ -1,0 +1,159 @@
+"""
+Matching Router — /api/matching
+Run matching job, view history, get results
+"""
+import threading
+from typing import List
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from database import get_db, SessionLocal
+from auth import get_current_admin
+import models
+import schemas
+from services.matching_job import run_matching
+from services.validation import validate_session
+
+router = APIRouter(prefix="/api/matching", tags=["matching"])
+
+
+def _run_in_background(run_id: int, session_id: int, seed: int):
+    """Run matching job in a background thread with its own DB session."""
+    db = SessionLocal()
+    try:
+        run_matching(run_id, session_id, seed, db)
+    finally:
+        db.close()
+
+
+@router.post("/run", response_model=schemas.MatchingRunOut)
+def start_run(
+    body: schemas.RunMatchingRequest,
+    db: Session = Depends(get_db),
+    _: models.Admin = Depends(get_current_admin),
+):
+    session = db.query(models.ImportSession).filter_by(id=body.session_id).first()
+    if not session:
+        raise HTTPException(404, "ไม่พบ Session")
+
+    # Must pass validation
+    val = validate_session(body.session_id, db)
+    if not val["passed"]:
+        errors = "; ".join(e["message"] for e in val["errors"][:3])
+        raise HTTPException(422, f"ข้อมูลยังไม่ผ่านการตรวจสอบ: {errors}")
+
+    # Create run record
+    run = models.MatchingRun(
+        session_id=body.session_id,
+        seed=body.seed,
+        status="running",
+    )
+    db.add(run)
+    db.commit()
+    db.refresh(run)
+
+    # Launch background thread
+    thread = threading.Thread(
+        target=_run_in_background,
+        args=(run.id, body.session_id, body.seed),
+        daemon=True,
+    )
+    thread.start()
+
+    return run
+
+
+@router.get("/runs", response_model=List[schemas.MatchingRunOut])
+def list_runs(
+    db: Session = Depends(get_db),
+    _: models.Admin = Depends(get_current_admin),
+):
+    return db.query(models.MatchingRun).order_by(models.MatchingRun.run_at.desc()).all()
+
+
+@router.get("/runs/{run_id}", response_model=schemas.MatchingRunOut)
+def get_run(
+    run_id: int,
+    db: Session = Depends(get_db),
+    _: models.Admin = Depends(get_current_admin),
+):
+    run = db.query(models.MatchingRun).filter_by(id=run_id).first()
+    if not run:
+        raise HTTPException(404, "ไม่พบ Run")
+    return run
+
+
+@router.get("/runs/{run_id}/results", response_model=List[schemas.MatchingResultOut])
+def get_results(
+    run_id: int,
+    db: Session = Depends(get_db),
+    _: models.Admin = Depends(get_current_admin),
+):
+    return db.query(models.MatchingResult).filter_by(run_id=run_id).all()
+
+
+@router.get("/runs/{run_id}/professor-summary")
+def get_professor_summary(
+    run_id: int,
+    db: Session = Depends(get_db),
+    _: models.Admin = Depends(get_current_admin),
+):
+    """Build professor summary from matching results."""
+    run = db.query(models.MatchingRun).filter_by(id=run_id).first()
+    if not run:
+        raise HTTPException(404, "ไม่พบ Run")
+
+    professors = db.query(models.Professor).filter_by(session_id=run.session_id).all()
+    results = db.query(models.MatchingResult).filter_by(run_id=run_id).all()
+
+    # Build assignment map
+    assignments: dict = {p.anonymous_code: [] for p in professors}
+    for r in results:
+        if r.assigned_prof and r.assigned_prof != "UNMATCHED":
+            if r.assigned_prof in assignments:
+                assignments[r.assigned_prof].append(r.group_code)
+
+    summary = []
+    for p in professors:
+        code = p.anonymous_code
+        assigned = assignments.get(code, [])
+        summary.append({
+            "prof_code": code,
+            "full_name": p.full_name,
+            "quota": p.quota,
+            "groups_assigned": assigned,
+            "num_assigned": len(assigned),
+            "quota_remaining": (p.quota or 0) - len(assigned),
+        })
+    return summary
+
+
+@router.get("/runs/{run_id}/stats")
+def get_stats(
+    run_id: int,
+    db: Session = Depends(get_db),
+    _: models.Admin = Depends(get_current_admin),
+):
+    run = db.query(models.MatchingRun).filter_by(id=run_id).first()
+    if not run:
+        raise HTTPException(404, "ไม่พบ Run")
+
+    results = db.query(models.MatchingResult).filter_by(run_id=run_id).all()
+    matched = [r for r in results if r.assigned_prof and r.assigned_prof != "UNMATCHED"]
+    ranks = [r.rank_given for r in matched if r.rank_given is not None]
+    n = len(results)
+
+    avg_rank = round(sum(ranks) / len(ranks), 2) if ranks else None
+    pct_rank1 = round(100 * sum(1 for r in ranks if r == 1) / n, 1) if n else 0
+    pct_top3 = round(100 * sum(1 for r in ranks if r <= 3) / n, 1) if n else 0
+
+    return {
+        "num_groups": n,
+        "num_matched": len(matched),
+        "num_unmatched": run.num_unmatched,
+        "avg_rank": avg_rank,
+        "pct_rank1": pct_rank1,
+        "pct_top3": pct_top3,
+        "seed": run.seed,
+        "num_ties": run.num_ties,
+    }

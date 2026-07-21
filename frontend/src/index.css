@@ -1,0 +1,76 @@
+/* ── Global Reset & Font ──────────────────────────────────────────── */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  min-height: 100vh;
+  font-family: 'Kanit', 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Ant Design font override ────────────────────────────────────── */
+.ant-typography,
+.ant-btn,
+.ant-input,
+.ant-select,
+.ant-menu,
+.ant-table,
+.ant-tabs,
+.ant-form-item,
+.ant-modal,
+.ant-card,
+.ant-alert,
+.ant-tag,
+.ant-badge,
+.ant-statistic,
+.ant-upload {
+  font-family: 'Kanit', 'Segoe UI', sans-serif !important;
+}
+
+/* ── Log viewer ──────────────────────────────────────────────────── */
+.log-viewer {
+  background: #0d1117;
+  color: #c9d1d9;
+  font-family: 'Consolas', 'Monaco', monospace;
+  font-size: 0.78rem;
+  padding: 14px 16px;
+  border-radius: 6px;
+  border: 1px solid #30363d;
+  min-height: 140px;
+  max-height: 360px;
+  overflow-y: auto;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.log-viewer .log-success { color: #3fb950; }
+.log-viewer .log-error   { color: #f85149; }
+
+/* ── Animations ──────────────────────────────────────────────────── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.5; }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.animate-fade-in    { animation: fadeInUp 0.3s ease-out; }
+.animate-pulse-soft { animation: pulse-soft 2s ease-in-out infinite; }
+.animate-spin       { animation: spin 0.9s linear infinite; }
+
+/* ── Ant Design Scrollbar ────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #f5f5f5; }
+::-webkit-scrollbar-thumb { background: #d9d9d9; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #bfbfbf; }
