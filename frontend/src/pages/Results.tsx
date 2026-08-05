@@ -219,7 +219,7 @@ export default function Results() {
       },
       {
         key: 'unmatched',
-        metric: <Text type="danger">จำนวนกลุ่มที่ไม่ได้จับคู่ (Unmatched)</Text>,
+        metric: 'จำนวนกลุ่มที่ไม่ได้จับคู่ (Unmatched)',
         student: s?.num_unmatched ?? '—',
         professor: p?.num_unmatched ?? '—',
         adv: advantage(s?.num_unmatched ?? null, p?.num_unmatched ?? null, false),
