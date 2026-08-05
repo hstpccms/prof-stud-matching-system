@@ -122,6 +122,9 @@ def dashboard_stats(
             "quota_sufficient": False,
             "pct_groups_ranked": 0.0,
             "pct_profs_scored": 0.0,
+            "incomplete_groups": [],
+            "incomplete_profs": [],
+            "data_stale": False,
             "latest_run": None,
         }
 
@@ -129,11 +132,50 @@ def dashboard_stats(
     val = validate_session(sid, db)
     summary = val["summary"]
 
+    # ── Compute incomplete lists ─────────────────────────────────────────────
+    groups = db.query(models.Group).filter_by(session_id=sid).all()
+    professors = db.query(models.Professor).filter_by(session_id=sid).all()
+    rankings = db.query(models.StudentRanking).filter_by(session_id=sid).all()
+    scores = db.query(models.ProfessorScore).filter_by(session_id=sid).all()
+
+    group_codes = [g.anonymous_code for g in groups if g.anonymous_code]
+    prof_codes = [p.anonymous_code for p in professors if p.anonymous_code]
+
+    # Groups that have not fully ranked all professors
+    rankings_by_group: dict = {}
+    for r in rankings:
+        if r.group_code not in rankings_by_group:
+            rankings_by_group[r.group_code] = set()
+        rankings_by_group[r.group_code].add(r.prof_code)
+
+    incomplete_groups = [
+        g for g in group_codes
+        if len(rankings_by_group.get(g, set())) < len(prof_codes)
+    ]
+
+    # Profs that have not scored all groups
+    scores_by_prof: dict = {}
+    for s in scores:
+        if s.prof_code not in scores_by_prof:
+            scores_by_prof[s.prof_code] = set()
+        scores_by_prof[s.prof_code].add(s.group_code)
+
+    incomplete_profs = [
+        p for p in prof_codes
+        if len(scores_by_prof.get(p, set())) < len(group_codes)
+    ]
+
+    # ── Latest run ───────────────────────────────────────────────────────────
     latest_run = (
         db.query(models.MatchingRun)
         .filter_by(session_id=sid)
         .order_by(models.MatchingRun.run_at.desc())
         .first()
+    )
+
+    # Data staleness: session uploaded AFTER the latest run
+    data_stale = bool(
+        latest_run and latest_session.uploaded_at > latest_run.run_at
     )
 
     return {
@@ -149,14 +191,22 @@ def dashboard_stats(
         "quota_sufficient": summary["quota_sufficient"],
         "pct_groups_ranked": summary["pct_groups_ranked"],
         "pct_profs_scored": summary["pct_profs_scored"],
+        "incomplete_groups": incomplete_groups,
+        "incomplete_profs": incomplete_profs,
+        "data_stale": data_stale,
         "latest_run": {
             "id": latest_run.id,
             "run_at": latest_run.run_at,
             "seed": latest_run.seed,
+            "mode": latest_run.mode or "both",
             "status": latest_run.status,
             "num_matched": latest_run.num_matched,
             "num_unmatched": latest_run.num_unmatched,
             "num_ties": latest_run.num_ties,
+            "num_matched_student": latest_run.num_matched_student,
+            "num_unmatched_student": latest_run.num_unmatched_student,
+            "num_matched_professor": latest_run.num_matched_professor,
+            "num_unmatched_professor": latest_run.num_unmatched_professor,
             "output_file_path": latest_run.output_file_path,
             "log": latest_run.log,
             "session_id": latest_run.session_id,

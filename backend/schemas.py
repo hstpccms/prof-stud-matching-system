@@ -95,12 +95,30 @@ class MatchingRunOut(BaseModel):
     session_id: int
     run_at: datetime
     seed: int
+    mode: Optional[str] = "both"
     status: str
     num_matched: int
     num_unmatched: int
     num_ties: int
+    # Per-mode stats
+    num_matched_student: int
+    num_unmatched_student: int
+    num_matched_professor: int
+    num_unmatched_professor: int
     output_file_path: Optional[str]
     log: Optional[str]
+
+    model_config = {"from_attributes": True}
+
+
+class RecentRunSummary(BaseModel):
+    id: int
+    run_at: datetime
+    mode: Optional[str] = "both"
+    status: str
+    num_matched: int
+    num_unmatched: int
+    num_groups: int  # total groups in that session
 
     model_config = {"from_attributes": True}
 
@@ -111,6 +129,7 @@ class MatchingResultOut(BaseModel):
     rank_given: Optional[int]
     main_score: Optional[int]
     sub_score: Optional[float]
+    mode: Optional[str]
 
     model_config = {"from_attributes": True}
 
@@ -124,4 +143,6 @@ class DashboardStats(BaseModel):
     quota_sufficient: bool
     pct_groups_ranked: float
     pct_profs_scored: float
+    incomplete_groups: List[str]  # anonymous_codes of groups not fully ranked
+    incomplete_profs: List[str]   # anonymous_codes of profs not fully scored
     latest_run: Optional[MatchingRunOut]

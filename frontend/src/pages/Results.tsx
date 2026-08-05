@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Card, Select, Tabs, Table, Tag, Typography,
-  Space, Flex, Row, Col, Statistic, Button, Empty,
+  Flex, Row, Col, Button, Empty, Badge, Tooltip,
 } from 'antd'
 import {
-  BarChartOutlined, DownloadOutlined,
+  BarChartOutlined, DownloadOutlined, SwapOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { listRuns, getResults, getProfSummary, getStats, downloadResult } from '../api/client'
@@ -13,156 +13,418 @@ const { Title, Text } = Typography
 
 type Tab = 'matching' | 'professors' | 'stats' | 'tiebreak'
 
+/** Strip ANSI codes, BOM, and non-printable chars from log text */
+function sanitizeLog(raw: string): string {
+  return raw
+    // eslint-disable-next-line no-control-regex
+    .replace(/\x1b\[[0-9;]*[mGKHF]/g, '')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    .replace(/\uFEFF/g, '')
+}
+
+function rankColor(v: number | null): string {
+  if (!v) return '#595959'
+  if (v === 1) return '#52c41a'
+  if (v <= 3) return '#1677ff'
+  return '#595959'
+}
+
 export default function Results() {
   const [runs, setRuns] = useState<any[]>([])
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null)
   const [tab, setTab] = useState<Tab>('matching')
-  const [results, setResults] = useState<any[]>([])
-  const [profSummary, setProfSummary] = useState<any[]>([])
-  const [stats, setStats] = useState<any>(null)
+
+  const [resultsStudent, setResultsStudent] = useState<any[]>([])
+  const [resultsProfessor, setResultsProfessor] = useState<any[]>([])
+  const [profSummaryStudent, setProfSummaryStudent] = useState<any[]>([])
+  const [profSummaryProfessor, setProfSummaryProfessor] = useState<any[]>([])
+  const [statsStudent, setStatsStudent] = useState<any>(null)
+  const [statsProfessor, setStatsProfessor] = useState<any>(null)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
     listRuns().then(res => {
       const ok = res.data.filter((r: any) => r.status === 'success')
-      setRuns(ok); if (ok.length) setSelectedRunId(ok[0].id)
+      setRuns(ok)
+      if (ok.length) setSelectedRunId(ok[0].id)
     })
   }, [])
 
   useEffect(() => {
     if (!selectedRunId) return
     setLoading(true)
-    Promise.all([getResults(selectedRunId), getProfSummary(selectedRunId), getStats(selectedRunId)])
-      .then(([r, p, s]) => { setResults(r.data); setProfSummary(p.data); setStats(s.data) })
+    Promise.all([
+      getResults(selectedRunId, 'student'),
+      getResults(selectedRunId, 'professor'),
+      getProfSummary(selectedRunId, 'student'),
+      getProfSummary(selectedRunId, 'professor'),
+      getStats(selectedRunId, 'student'),
+      getStats(selectedRunId, 'professor'),
+    ])
+      .then(([rs, rp, ps, pp, ss, sp]) => {
+        setResultsStudent(rs.data)
+        setResultsProfessor(rp.data)
+        setProfSummaryStudent(ps.data)
+        setProfSummaryProfessor(pp.data)
+        setStatsStudent(ss.data)
+        setStatsProfessor(sp.data)
+      })
       .finally(() => setLoading(false))
   }, [selectedRunId])
 
   const selectedRun = runs.find(r => r.id === selectedRunId)
 
-  /* ── Columns ── */
-  const matchingColumns: ColumnsType<any> = [
-    { title: '#', key: 'idx', render: (_, __, i) => <Text type="secondary">{i + 1}</Text>, width: 50 },
-    { title: 'กลุ่ม', dataIndex: 'group_code', render: v => <Tag>{v}</Tag> },
+  const compRows = useMemo(() => {
+    const profMap = new Map(resultsProfessor.map(r => [r.group_code, r]))
+    return resultsStudent.map((s, i) => {
+      const p = profMap.get(s.group_code)
+      return {
+        key: String(i),
+        group_code: s.group_code,
+        s_prof: s.assigned_prof,
+        s_rank: s.rank_given,
+        s_main: s.main_score,
+        p_prof: p?.assigned_prof ?? null,
+        p_rank: p?.rank_given ?? null,
+        p_main: p?.main_score ?? null,
+        diff: s.assigned_prof !== (p?.assigned_prof ?? null),
+      }
+    })
+  }, [resultsStudent, resultsProfessor])
+
+  const numDiff = compRows.filter(r => r.diff).length
+
+  const compColumns: ColumnsType<any> = [
     {
-      title: 'อาจารย์', dataIndex: 'assigned_prof',
-      render: v => (!v || v === 'UNMATCHED')
-        ? <Tag color="error">UNMATCHED</Tag>
-        : <Text strong>{v}</Text>,
+      title: '#', key: 'idx', width: 44,
+      render: (_: any, __: any, i: number) => <Text type="secondary">{i + 1}</Text>,
     },
     {
-      title: 'อันดับที่ได้', dataIndex: 'rank_given', align: 'center',
-      render: v => v
-        ? <Text strong style={{ color: v === 1 ? '#52c41a' : v <= 3 ? '#1677ff' : '#595959' }}>{v}</Text>
-        : '—',
+      title: 'กลุ่ม', dataIndex: 'group_code', width: 90,
+      render: (v: string) => <Tag>{v}</Tag>,
     },
     {
-      title: 'Main Score', dataIndex: 'main_score', align: 'center',
-      render: v => <Text strong={!!v}>{v || '—'}</Text>,
+      title: <span style={{ color: '#1677ff', fontWeight: 600, fontSize: 13 }}>Student-Proposing</span>,
+      onHeaderCell: () => ({ style: { borderBottom: '2px solid #1677ff' } }),
+      children: [
+        {
+          title: 'อาจารย์', dataIndex: 's_prof', key: 's_prof',
+          render: (v: string) => (!v || v === 'UNMATCHED')
+            ? <Tag color="error">UNMATCHED</Tag>
+            : <Text strong style={{ color: '#1677ff' }}>{v}</Text>,
+        },
+        {
+          title: 'อันดับ', dataIndex: 's_rank', key: 's_rank',
+          align: 'center' as const, width: 70,
+          render: (v: number) => v
+            ? <Text strong style={{ color: rankColor(v) }}>{v}</Text> : '—',
+        },
+        {
+          title: 'Score', dataIndex: 's_main', key: 's_main',
+          align: 'center' as const, width: 72,
+          render: (v: number) => <Text type="secondary">{v ?? '—'}</Text>,
+        },
+      ],
     },
     {
-      title: 'Sub-score', dataIndex: 'sub_score', align: 'center',
-      render: v => <Text type="secondary">{v?.toFixed(2) || '—'}</Text>,
+      title: '',
+      key: 'divider',
+      width: 4,
+      render: () => null,
+      onHeaderCell: () => ({ style: { background: '#d9d9d9', padding: 0 } }),
+      onCell: () => ({ style: { background: '#f0f0f0', padding: 0 } }),
+    },
+    {
+      title: <span style={{ color: '#722ed1', fontWeight: 600, fontSize: 13 }}>Professor-Proposing</span>,
+      onHeaderCell: () => ({ style: { borderBottom: '2px solid #722ed1' } }),
+      children: [
+        {
+          title: 'อาจารย์', dataIndex: 'p_prof', key: 'p_prof',
+          render: (v: string) => (!v || v === 'UNMATCHED')
+            ? <Tag color="error">UNMATCHED</Tag>
+            : <Text strong style={{ color: '#722ed1' }}>{v}</Text>,
+        },
+        {
+          title: 'อันดับ', dataIndex: 'p_rank', key: 'p_rank',
+          align: 'center' as const, width: 70,
+          render: (v: number) => v
+            ? <Text strong style={{ color: rankColor(v) }}>{v}</Text> : '—',
+        },
+        {
+          title: 'Score', dataIndex: 'p_main', key: 'p_main',
+          align: 'center' as const, width: 72,
+          render: (v: number) => <Text type="secondary">{v ?? '—'}</Text>,
+        },
+      ],
+    },
+    {
+      title: (
+        <Tooltip title="ผลจากสองโหมดต่างกันหรือไม่">
+          <SwapOutlined />
+        </Tooltip>
+      ),
+      dataIndex: 'diff', key: 'diff', align: 'center' as const, width: 56,
+      render: (v: boolean) => v
+        ? <Tag color="orange" style={{ margin: 0 }}>ต่าง</Tag>
+        : <Text type="secondary" style={{ fontSize: 12 }}>—</Text>,
     },
   ]
 
-  const profColumns: ColumnsType<any> = [
-    { title: 'รหัส', dataIndex: 'prof_code', render: v => <Tag>{v}</Tag> },
-    { title: 'ชื่อ', dataIndex: 'full_name', render: v => <Text strong>{v || '—'}</Text> },
-    { title: 'Quota', dataIndex: 'quota', align: 'center' },
+  const profCols = (color: string): ColumnsType<any> => [
+    { title: 'รหัส', dataIndex: 'prof_code', render: (v: string) => <Tag>{v}</Tag> },
+    { title: 'ชื่อ', dataIndex: 'full_name', render: (v: string) => <Text strong>{v || '—'}</Text> },
+    { title: 'Quota', dataIndex: 'quota', align: 'center' as const },
     {
       title: 'กลุ่มที่ได้รับ', dataIndex: 'groups_assigned',
       render: (v: string[]) => v?.length
-        ? v.join(', ')
-        : <Text type="danger">ไม่ได้รับกลุ่มใด</Text>,
+        ? v.map(g => <Tag key={g} color={color} style={{ marginBottom: 2 }}>{g}</Tag>)
+        : <Text type="danger">—</Text>,
     },
-    { title: 'จำนวน', dataIndex: 'num_assigned', align: 'center', render: v => <Text strong>{v}</Text> },
     {
-      title: 'คงเหลือ', dataIndex: 'quota_remaining', align: 'center',
-      render: v => (
-        <Tag color={v === 0 ? 'success' : v > 0 ? 'warning' : 'error'}>{v}</Tag>
-      ),
+      title: 'จำนวน', dataIndex: 'num_assigned', align: 'center' as const,
+      render: (v: number) => <Text strong>{v}</Text>,
+    },
+    {
+      title: 'คงเหลือ', dataIndex: 'quota_remaining', align: 'center' as const,
+      render: (v: number) => <Tag color={v === 0 ? 'success' : v > 0 ? 'warning' : 'error'}>{v}</Tag>,
+    },
+  ]
+
+  const sameResult = resultsStudent.length > 0 && numDiff === 0
+
+  // ── Stats comparison table rows ──────────────────────────────────────────
+  const buildStatsRows = (s: any, p: any) => {
+    if (!s && !p) return []
+
+    const advantage = (
+      sVal: number | null,
+      pVal: number | null,
+      higherIsBetter = true,
+    ): React.ReactNode => {
+      if (sVal === null || pVal === null) return <Text type="secondary">—</Text>
+      if (sVal === pVal) return <Tag color="default" style={{ margin: 0 }}>เท่ากัน</Tag>
+      const studentWins = higherIsBetter ? sVal > pVal : sVal < pVal
+      return studentWins
+        ? <Tag color="blue" style={{ margin: 0, color: '#1677ff', background: '#e6f4ff', borderColor: '#91caff' }}>Student</Tag>
+        : <Tag color="purple" style={{ margin: 0, color: '#722ed1', background: '#f9f0ff', borderColor: '#d3adf7' }}>Professor</Tag>
+    }
+
+    return [
+      {
+        key: 'matched',
+        metric: 'จำนวนกลุ่มที่จับคู่สำเร็จ',
+        student: s?.num_matched ?? '—',
+        professor: p?.num_matched ?? '—',
+        adv: advantage(s?.num_matched ?? null, p?.num_matched ?? null, true),
+      },
+      {
+        key: 'unmatched',
+        metric: <Text type="danger">จำนวนกลุ่มที่ไม่ได้จับคู่ (Unmatched)</Text>,
+        student: s?.num_unmatched ?? '—',
+        professor: p?.num_unmatched ?? '—',
+        adv: advantage(s?.num_unmatched ?? null, p?.num_unmatched ?? null, false),
+      },
+      {
+        key: 'avg_rank',
+        metric: 'Rank เฉลี่ยที่นักศึกษาได้รับ (ยิ่งน้อยยิ่งดี)',
+        student: s?.avg_rank ?? '—',
+        professor: p?.avg_rank ?? '—',
+        adv: advantage(s?.avg_rank ?? null, p?.avg_rank ?? null, false),
+      },
+      {
+        key: 'pct_rank1',
+        metric: '% กลุ่มที่ได้อาจารย์อันดับ 1 ของตน',
+        student: s?.pct_rank1 != null ? s.pct_rank1 : '—',
+        professor: p?.pct_rank1 != null ? p.pct_rank1 : '—',
+        adv: advantage(s?.pct_rank1 ?? null, p?.pct_rank1 ?? null, true),
+      },
+      {
+        key: 'pct_top3',
+        metric: '% กลุ่มที่ได้อาจารย์อยู่ใน Top-3 ของตน',
+        student: s?.pct_top3 != null ? s.pct_top3 : '—',
+        professor: p?.pct_top3 != null ? p.pct_top3 : '—',
+        adv: advantage(s?.pct_top3 ?? null, p?.pct_top3 ?? null, true),
+      },
+      {
+        key: 'avg_main',
+        metric: 'Main Score เฉลี่ยที่อาจารย์ให้กลุ่มที่ตนได้ (ความพอใจฝั่งอาจารย์)',
+        student: s?.avg_main_score ?? '—',
+        professor: p?.avg_main_score ?? '—',
+        adv: advantage(s?.avg_main_score ?? null, p?.avg_main_score ?? null, true),
+      },
+    ]
+  }
+
+  const statsTableCols: ColumnsType<any> = [
+    {
+      title: 'ตัวชี้วัด',
+      dataIndex: 'metric',
+      key: 'metric',
+      width: '42%',
+      render: (v: React.ReactNode) => <span style={{ fontSize: 13 }}>{v}</span>,
+    },
+    {
+      title: <span style={{ color: '#1677ff', fontWeight: 600 }}>Student-Proposing</span>,
+      dataIndex: 'student',
+      key: 'student',
+      align: 'center' as const,
+      width: '20%',
+      render: (v: any) => <Text strong style={{ fontSize: 14 }}>{v}</Text>,
+    },
+    {
+      title: <span style={{ color: '#722ed1', fontWeight: 600 }}>Professor-Proposing</span>,
+      dataIndex: 'professor',
+      key: 'professor',
+      align: 'center' as const,
+      width: '20%',
+      render: (v: any) => <Text strong style={{ fontSize: 14 }}>{v}</Text>,
+    },
+    {
+      title: 'ฝั่งที่ได้เปรียบ',
+      dataIndex: 'adv',
+      key: 'adv',
+      align: 'center' as const,
+      width: '18%',
+      render: (v: React.ReactNode) => v,
     },
   ]
 
   const tabItems = [
     {
-      key: 'matching', label: 'Final Matching',
-      children: (
-        <Table
-          dataSource={results}
-          columns={matchingColumns}
-          rowKey={(_, i) => String(i)}
-          size="small"
-          loading={loading}
-          pagination={{ pageSize: 20 }}
-          scroll={{ x: true }}
-        />
-      ),
-    },
-    {
-      key: 'professors', label: 'Professor Summary',
-      children: (
-        <Table
-          dataSource={profSummary}
-          columns={profColumns}
-          rowKey={(_, i) => String(i)}
-          size="small"
-          loading={loading}
-          pagination={{ pageSize: 20 }}
-        />
-      ),
-    },
-    {
-      key: 'stats', label: 'สถิติ',
-      children: stats ? (
-        <div style={{ padding: 24 }}>
-          <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-            {[
-              { label: 'กลุ่มทั้งหมด', value: stats.num_groups },
-              { label: 'จับคู่สำเร็จ', value: stats.num_matched, color: '#52c41a' },
-              { label: 'ไม่ได้จับคู่', value: stats.num_unmatched, color: stats.num_unmatched > 0 ? '#ff4d4f' : undefined },
-              { label: 'Tie-break', value: stats.num_ties, color: stats.num_ties > 0 ? '#faad14' : undefined },
-            ].map(({ label, value, color }) => (
-              <Col span={6} key={label}>
-                <Card>
-                  <Statistic title={label} value={value} valueStyle={color ? { color } : undefined} />
-                </Card>
-              </Col>
-            ))}
-          </Row>
-          {stats.avg_rank && (
-            <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-              {[
-                { label: 'Rank เฉลี่ย', value: stats.avg_rank, suffix: '', note: 'ยิ่งน้อยยิ่งดี' },
-                { label: 'ได้อันดับ 1', value: stats.pct_rank1, suffix: '%' },
-                { label: 'ได้ Top-3', value: stats.pct_top3, suffix: '%' },
-              ].map(({ label, value, suffix, note }: any) => (
-                <Col span={8} key={label}>
-                  <Card>
-                    <Statistic title={label} value={value} suffix={suffix} valueStyle={{ color: '#1677ff' }} />
-                    {note && <Text type="secondary" style={{ fontSize: 12 }}>{note}</Text>}
-                  </Card>
-                </Col>
-              ))}
-            </Row>
+      key: 'matching',
+      label: (
+        <Flex align="center" gap={6}>
+          <span>Final Matching</span>
+          {numDiff > 0 && !loading && (
+            <Tag color="warning" style={{ margin: 0, fontSize: 11 }}>
+              {numDiff} ต่าง
+            </Tag>
           )}
-          <Card size="small">
-            <Text type="secondary">Seed: </Text>
-            <Text code strong>{stats.seed}</Text>
-            <Text type="secondary" style={{ marginLeft: 8 }}>บันทึกไว้เพื่อ Audit</Text>
-          </Card>
+        </Flex>
+      ),
+      children: (
+        <div>
+          <Flex align="center" gap={16} style={{ marginBottom: 12 }}>
+            <Badge color="#1677ff" text={<Text style={{ fontSize: 12 }}>Student-Proposing</Text>} />
+            <Badge color="#722ed1" text={<Text style={{ fontSize: 12 }}>Professor-Proposing</Text>} />
+            {numDiff > 0 && (
+              <Text type="warning" style={{ fontSize: 12 }}>
+                ⚠ {numDiff} กลุ่มได้ผลต่างกันระหว่างสองโหมด
+              </Text>
+            )}
+          </Flex>
+          <Table
+            dataSource={compRows}
+            columns={compColumns}
+            rowKey="key"
+            size="small"
+            loading={loading}
+            pagination={{ pageSize: 20 }}
+            scroll={{ x: true }}
+            bordered
+            rowClassName={(r: any) => r.diff ? 'row-diff' : ''}
+          />
+          <style>{`
+            .row-diff td { background-color: #fffbe6 !important; }
+            .row-diff:hover td { background-color: #fff1b8 !important; }
+          `}</style>
+        </div>
+      ),
+    },
+    {
+      key: 'professors',
+      label: 'Professor Summary',
+      children: (
+        <Row gutter={24}>
+          <Col span={12}>
+            <div style={{ fontWeight: 700, color: '#1677ff', marginBottom: 8, fontSize: 13 }}>
+              Student-Proposing
+            </div>
+            <Table
+              dataSource={profSummaryStudent}
+              columns={profCols('#1677ff')}
+              rowKey="prof_code"
+              size="small"
+              loading={loading}
+              pagination={false}
+              bordered
+            />
+          </Col>
+          <Col span={12}>
+            <div style={{ fontWeight: 700, color: '#722ed1', marginBottom: 8, fontSize: 13 }}>
+              Professor-Proposing
+            </div>
+            <Table
+              dataSource={profSummaryProfessor}
+              columns={profCols('#722ed1')}
+              rowKey="prof_code"
+              size="small"
+              loading={loading}
+              pagination={false}
+              bordered
+            />
+          </Col>
+        </Row>
+      ),
+    },
+    {
+      key: 'stats',
+      label: 'สถิติ',
+      children: (statsStudent || statsProfessor) ? (
+        <div style={{ padding: '16px 4px' }}>
+          {sameResult && (
+            <div style={{ borderLeft: '3px solid #52c41a', paddingLeft: 12, marginBottom: 16 }}>
+              <Text style={{ color: '#389e0d', fontSize: 13 }}>
+                ทั้งสองโหมดให้ผล matching เหมือนกัน — ข้อมูลชุดนี้มี Stable Matching เดียว
+              </Text>
+              <br />
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                (เมื่อ matching เหมือนกัน สถิติทั้ง 6 ตัวจึงเท่ากัน ซึ่งถูกต้องตามทฤษฎี Gale-Shapley)
+              </Text>
+            </div>
+          )}
+          {numDiff > 0 && (
+            <div style={{ borderLeft: '3px solid #faad14', paddingLeft: 12, marginBottom: 16 }}>
+              <Text type="warning" style={{ fontSize: 13 }}>
+                ทั้งสองโหมดให้ผล matching ต่างกัน {numDiff} กลุ่ม — ดูแท็บ Final Matching เพื่อเปรียบเทียบ
+              </Text>
+            </div>
+          )}
+          <Table
+            dataSource={buildStatsRows(statsStudent, statsProfessor)}
+            columns={statsTableCols}
+            rowKey="key"
+            size="small"
+            loading={loading}
+            pagination={false}
+            bordered
+            style={{ marginBottom: 16 }}
+          />
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            Seed: <Text code style={{ fontSize: 12 }}>
+              {statsStudent?.seed ?? statsProfessor?.seed}
+            </Text>
+            <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+              (บันทึกไว้เพื่อตรวจสอบ Tie-break)
+            </Text>
+          </Text>
         </div>
       ) : null,
     },
     {
-      key: 'tiebreak', label: 'TieBreak Log',
+      key: 'tiebreak',
+      label: 'TieBreak Log',
       children: (
         <div style={{ padding: 20 }}>
           <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 13 }}>
             กรณีที่ต้องใช้ Seeded Random ตัดสินในขั้นสุดท้าย (Tie-break ชั้น 3)
           </Text>
           {selectedRun?.log
-            ? <div className="log-viewer">{selectedRun.log}</div>
+            ? (
+              <div className="log-viewer">
+                {sanitizeLog(selectedRun.log)}
+              </div>
+            )
             : <Text type="secondary">ไม่มีข้อมูล</Text>}
           <Text type="secondary" style={{ marginTop: 10, fontSize: 12, display: 'block' }}>
             ดูรายละเอียดแบบเต็มได้ที่ชีต TieBreak_Log ในไฟล์ Excel ที่ดาวน์โหลด
@@ -176,7 +438,9 @@ export default function Results() {
     return (
       <div style={{ padding: 32 }}>
         <Title level={4} style={{ marginBottom: 4 }}>ผลลัพธ์การจับคู่</Title>
-        <Text type="secondary" style={{ display: 'block', marginBottom: 40 }}>ยังไม่มีผลลัพธ์ — ไปรัน Matching ก่อน</Text>
+        <Text type="secondary" style={{ display: 'block', marginBottom: 40 }}>
+          ยังไม่มีผลลัพธ์ — ไปรัน Matching ก่อน
+        </Text>
         <Card>
           <Empty
             image={<BarChartOutlined style={{ fontSize: 48, color: '#bfbfbf' }} />}
@@ -189,7 +453,6 @@ export default function Results() {
 
   return (
     <div style={{ padding: 32 }} className="animate-fade-in">
-      {/* Header */}
       <Flex
         justify="space-between"
         align="flex-start"
@@ -199,7 +462,9 @@ export default function Results() {
       >
         <div>
           <Title level={4} style={{ marginBottom: 4 }}>ผลลัพธ์การจับคู่</Title>
-          <Text type="secondary">ผลลัพธ์จาก Matching Algorithm</Text>
+          <Text type="secondary">
+            เปรียบเทียบ Student-Proposing 🔵 vs Professor-Proposing 🟣
+          </Text>
         </div>
         <Flex gap={8} align="center" wrap="wrap">
           <Select
@@ -222,7 +487,6 @@ export default function Results() {
           )}
         </Flex>
       </Flex>
-
       <Card>
         <Tabs
           activeKey={tab}

@@ -97,10 +97,17 @@ class MatchingRun(Base):
     session_id = Column(Integer, ForeignKey("import_sessions.id"))
     run_at = Column(DateTime, default=datetime.utcnow)
     seed = Column(Integer)
+    mode = Column(String, default="both")  # student|professor|both
     status = Column(String, default="running")  # running|success|failed
+    # Legacy aggregate (kept for backward compat) — stores student-proposing values
     num_matched = Column(Integer, default=0)
     num_unmatched = Column(Integer, default=0)
     num_ties = Column(Integer, default=0)
+    # Per-mode stats (v4 algorithm)
+    num_matched_student = Column(Integer, default=0)
+    num_unmatched_student = Column(Integer, default=0)
+    num_matched_professor = Column(Integer, default=0)
+    num_unmatched_professor = Column(Integer, default=0)
     output_file_path = Column(String)
     log = Column(Text)
 
@@ -117,5 +124,6 @@ class MatchingResult(Base):
     rank_given = Column(Integer)
     main_score = Column(Integer)
     sub_score = Column(Float)
+    mode = Column(String, default="student")  # "student" | "professor"
 
     run = relationship("MatchingRun", back_populates="results")

@@ -53,10 +53,14 @@ export const runMatching = (session_id: number, seed: number) =>
   api.post('/matching/run', { session_id, seed })
 
 export const listRuns = () => api.get('/matching/runs')
+export const getRecentRuns = () => api.get('/matching/runs/recent')
 export const getRun = (runId: number) => api.get(`/matching/runs/${runId}`)
-export const getResults = (runId: number) => api.get(`/matching/runs/${runId}/results`)
-export const getProfSummary = (runId: number) => api.get(`/matching/runs/${runId}/professor-summary`)
-export const getStats = (runId: number) => api.get(`/matching/runs/${runId}/stats`)
+export const getResults = (runId: number, mode?: 'student' | 'professor') =>
+  api.get(`/matching/runs/${runId}/results`, { params: mode ? { mode } : undefined })
+export const getProfSummary = (runId: number, mode?: 'student' | 'professor') =>
+  api.get(`/matching/runs/${runId}/professor-summary`, { params: mode ? { mode } : undefined })
+export const getStats = (runId: number, mode?: 'student' | 'professor') =>
+  api.get(`/matching/runs/${runId}/stats`, { params: mode ? { mode } : undefined })
 
 // ── Download ──────────────────────────────────────────────────────────────────
 export const downloadUpload = (sid: number) =>

@@ -3,8 +3,8 @@ Matching Router — /api/matching
 Run matching job, view history, get results
 """
 import threading
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException
+from typing import List, Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database import get_db, SessionLocal
@@ -71,6 +71,34 @@ def list_runs(
     return db.query(models.MatchingRun).order_by(models.MatchingRun.run_at.desc()).all()
 
 
+@router.get("/runs/recent")
+def recent_runs(
+    db: Session = Depends(get_db),
+    _: models.Admin = Depends(get_current_admin),
+):
+    """Return the 3 most recent matching runs with group totals for ratio display."""
+    runs = (
+        db.query(models.MatchingRun)
+        .order_by(models.MatchingRun.run_at.desc())
+        .limit(3)
+        .all()
+    )
+    result = []
+    for run in runs:
+        num_groups = db.query(models.Group).filter_by(session_id=run.session_id).count()
+        result.append({
+            "id": run.id,
+            "run_at": run.run_at,
+            "seed": run.seed,
+            "mode": run.mode or "both",
+            "status": run.status,
+            "num_matched": run.num_matched,
+            "num_unmatched": run.num_unmatched,
+            "num_groups": num_groups,
+        })
+    return result
+
+
 @router.get("/runs/{run_id}", response_model=schemas.MatchingRunOut)
 def get_run(
     run_id: int,
@@ -86,25 +114,33 @@ def get_run(
 @router.get("/runs/{run_id}/results", response_model=List[schemas.MatchingResultOut])
 def get_results(
     run_id: int,
+    mode: Optional[str] = Query(None, description="Filter by mode: 'student' or 'professor'"),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
-    return db.query(models.MatchingResult).filter_by(run_id=run_id).all()
+    query = db.query(models.MatchingResult).filter_by(run_id=run_id)
+    if mode in ("student", "professor"):
+        query = query.filter(models.MatchingResult.mode == mode)
+    return query.all()
 
 
 @router.get("/runs/{run_id}/professor-summary")
 def get_professor_summary(
     run_id: int,
+    mode: Optional[str] = Query("student", description="Mode: 'student' or 'professor'"),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
-    """Build professor summary from matching results."""
+    """Build professor summary from matching results for a given mode."""
     run = db.query(models.MatchingRun).filter_by(id=run_id).first()
     if not run:
         raise HTTPException(404, "ไม่พบ Run")
 
     professors = db.query(models.Professor).filter_by(session_id=run.session_id).all()
-    results = db.query(models.MatchingResult).filter_by(run_id=run_id).all()
+    results_query = db.query(models.MatchingResult).filter_by(run_id=run_id)
+    if mode in ("student", "professor"):
+        results_query = results_query.filter(models.MatchingResult.mode == mode)
+    results = results_query.all()
 
     # Build assignment map
     assignments: dict = {p.anonymous_code: [] for p in professors}
@@ -131,6 +167,7 @@ def get_professor_summary(
 @router.get("/runs/{run_id}/stats")
 def get_stats(
     run_id: int,
+    mode: Optional[str] = Query(None, description="Mode: 'student' or 'professor' — returns that mode's stats only"),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
@@ -138,22 +175,46 @@ def get_stats(
     if not run:
         raise HTTPException(404, "ไม่พบ Run")
 
-    results = db.query(models.MatchingResult).filter_by(run_id=run_id).all()
+    results_query = db.query(models.MatchingResult).filter_by(run_id=run_id)
+    if mode in ("student", "professor"):
+        results_query = results_query.filter(models.MatchingResult.mode == mode)
+    results = results_query.all()
+
     matched = [r for r in results if r.assigned_prof and r.assigned_prof != "UNMATCHED"]
     ranks = [r.rank_given for r in matched if r.rank_given is not None]
+    main_scores = [r.main_score for r in matched if r.main_score is not None]
     n = len(results)
 
     avg_rank = round(sum(ranks) / len(ranks), 2) if ranks else None
     pct_rank1 = round(100 * sum(1 for r in ranks if r == 1) / n, 1) if n else 0
     pct_top3 = round(100 * sum(1 for r in ranks if r <= 3) / n, 1) if n else 0
+    avg_main_score = round(sum(main_scores) / len(main_scores), 2) if main_scores else None
+
+    # Resolve num_unmatched from per-mode field if available
+    if mode == "student":
+        num_unmatched = run.num_unmatched_student
+    elif mode == "professor":
+        num_unmatched = run.num_unmatched_professor
+    else:
+        num_unmatched = run.num_unmatched
 
     return {
         "num_groups": n,
         "num_matched": len(matched),
-        "num_unmatched": run.num_unmatched,
+        "num_unmatched": num_unmatched,
         "avg_rank": avg_rank,
         "pct_rank1": pct_rank1,
         "pct_top3": pct_top3,
+        "avg_main_score": avg_main_score,
         "seed": run.seed,
         "num_ties": run.num_ties,
+        # Full per-mode breakdown (always returned)
+        "student": {
+            "num_matched": run.num_matched_student,
+            "num_unmatched": run.num_unmatched_student,
+        },
+        "professor": {
+            "num_matched": run.num_matched_professor,
+            "num_unmatched": run.num_unmatched_professor,
+        },
     }

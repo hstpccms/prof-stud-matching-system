@@ -5,13 +5,11 @@ Wraps 05_matching_algorithm.py as a backend job
 import os
 import sys
 import json
+import re
 import tempfile
-import subprocess
 from datetime import datetime
 from sqlalchemy.orm import Session
 import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
 import models
 
 # Path to the matching algorithm script
@@ -77,6 +75,7 @@ def run_matching(run_id: int, session_id: int, seed: int, db: Session):
     Execute the matching algorithm as a subprocess.
     Updates the MatchingRun record with results.
     """
+    import subprocess
     os.makedirs(RESULTS_DIR, exist_ok=True)
 
     run = db.query(models.MatchingRun).filter_by(id=run_id).first()
@@ -104,10 +103,13 @@ def run_matching(run_id: int, session_id: int, seed: int, db: Session):
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors="replace",
             timeout=120,
         )
 
-        log_output = result.stdout + ("\nSTDERR:\n" + result.stderr if result.stderr else "")
+        stdout = result.stdout if result.stdout is not None else ""
+        stderr = result.stderr if result.stderr is not None else ""
+        log_output = stdout + ("\nSTDERR:\n" + stderr if stderr else "")
 
         if result.returncode != 0:
             run.status = "failed"
@@ -115,29 +117,55 @@ def run_matching(run_id: int, session_id: int, seed: int, db: Session):
             db.commit()
             return
 
-        # Parse results from stdout
-        num_matched = 0
-        num_unmatched = 0
+        # ── Parse results from stdout (v4 format) ──────────────────────────
+        # Example lines:
+        #   [Student-Proposing]   Matched: 10/15 | Unmatched: ['G001']
+        #   [Professor-Proposing] Matched: 11/15 | Unmatched: []
+        #   Tie-break events resolved with seed=2026: 3
+        num_matched_student = 0
+        num_unmatched_student = 0
+        num_matched_professor = 0
+        num_unmatched_professor = 0
         num_ties = 0
-        for line in result.stdout.splitlines():
-            if line.startswith("Matched:"):
-                parts = line.split("|")
-                matched_part = parts[0].strip()
-                # "Matched: X/Y groups"
-                frac = matched_part.split(":")[1].strip().split()[0]
-                num_matched = int(frac.split("/")[0])
-                num_unmatched_val = frac.split("/")[1].replace("groups", "").strip()
-                num_unmatched = int(frac.split("/")[1]) - num_matched
-            if "Tie-break events" in line:
-                num_ties = int(line.split(":")[1].strip().split()[0])
 
-        # Read output Excel and store results in DB
+        for line in result.stdout.splitlines():
+            # v4 format: [Student-Proposing]   Matched: X/Y | Unmatched: [...]
+            m = re.match(r'\[Student-Proposing\].*Matched:\s*(\d+)/(\d+)', line)
+            if m:
+                num_matched_student = int(m.group(1))
+                total = int(m.group(2))
+                num_unmatched_student = total - num_matched_student
+                continue
+
+            m = re.match(r'\[Professor-Proposing\].*Matched:\s*(\d+)/(\d+)', line)
+            if m:
+                num_matched_professor = int(m.group(1))
+                total = int(m.group(2))
+                num_unmatched_professor = total - num_matched_professor
+                continue
+
+            if "Tie-break events" in line:
+                parts = re.findall(r'\d+', line.split("seed=")[1] if "seed=" in line else line)
+                # "Tie-break events resolved with seed=2026: 3"  → last number is count
+                tie_parts = line.split(":")
+                if len(tie_parts) >= 2:
+                    try:
+                        num_ties = int(tie_parts[-1].strip().split()[0])
+                    except (ValueError, IndexError):
+                        pass
+
+        # Read output Excel and store results in DB (both modes)
         _import_results(run_id, output_path, db)
 
+        # Use student-proposing as the primary "legacy" aggregate
         run.status = "success"
-        run.num_matched = num_matched
-        run.num_unmatched = num_unmatched
+        run.num_matched = num_matched_student
+        run.num_unmatched = num_unmatched_student
         run.num_ties = num_ties
+        run.num_matched_student = num_matched_student
+        run.num_unmatched_student = num_unmatched_student
+        run.num_matched_professor = num_matched_professor
+        run.num_unmatched_professor = num_unmatched_professor
         run.output_file_path = output_path
         run.log = log_output
         db.commit()
@@ -156,21 +184,40 @@ def run_matching(run_id: int, session_id: int, seed: int, db: Session):
 
 
 def _import_results(run_id: int, output_path: str, db: Session):
-    """Read output Excel and store results in matching_results table."""
+    """
+    Read output Excel and store results in matching_results table.
+    Supports both v4 (Final_Matching_Student / Final_Matching_Professor)
+    and legacy v3 (Final_Matching) sheet naming.
+    """
     wb = openpyxl.load_workbook(output_path, data_only=True)
-    if "Final_Matching" not in wb.sheetnames:
+    sheetnames = wb.sheetnames
+
+    # v4: two mode sheets
+    mode_map = {}
+    if "Final_Matching_Student" in sheetnames:
+        mode_map["student"] = wb["Final_Matching_Student"]
+    if "Final_Matching_Professor" in sheetnames:
+        mode_map["professor"] = wb["Final_Matching_Professor"]
+
+    # Fallback to legacy v3 sheet name
+    if not mode_map and "Final_Matching" in sheetnames:
+        mode_map["student"] = wb["Final_Matching"]
+
+    if not mode_map:
         return
-    ws = wb["Final_Matching"]
-    for row in ws.iter_rows(min_row=2, values_only=True):
-        if not row or row[0] is None:
-            continue
-        group_code, assigned_prof, rank_given, main_score, sub_score = row
-        result = models.MatchingResult(
-            run_id=run_id,
-            group_code=str(group_code),
-            assigned_prof=str(assigned_prof) if assigned_prof else None,
-            rank_given=int(rank_given) if rank_given is not None else None,
-            main_score=int(main_score) if main_score is not None else None,
-            sub_score=float(sub_score) if sub_score is not None else None,
-        )
-        db.add(result)
+
+    for mode, ws in mode_map.items():
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if not row or row[0] is None:
+                continue
+            group_code, assigned_prof, rank_given, main_score, sub_score = row
+            result = models.MatchingResult(
+                run_id=run_id,
+                group_code=str(group_code),
+                assigned_prof=str(assigned_prof) if assigned_prof else None,
+                rank_given=int(rank_given) if rank_given is not None else None,
+                main_score=int(main_score) if main_score is not None else None,
+                sub_score=float(sub_score) if sub_score is not None else None,
+                mode=mode,
+            )
+            db.add(result)
