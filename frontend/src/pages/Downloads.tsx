@@ -1,18 +1,50 @@
 import { useEffect, useState } from 'react'
-import { Card, List, Button, Typography, Space, Tag } from 'antd'
+import { Card, List, Button, Typography, Space, Tag, App as AntApp } from 'antd'
 import { DownloadOutlined, FileExcelOutlined, CheckCircleOutlined } from '@ant-design/icons'
-import { listSessions, listRuns, downloadUpload, downloadResult } from '../api/client'
+import { listSessions, listRuns } from '../api/client'
+import api from '../api/client'
 
 const { Title, Text } = Typography
 
 export default function Downloads() {
+  // useApp() ต้องเรียกในระดับ component ที่อยู่ใต้ <AntApp> — ไม่ใช่ static import
+  const { message } = AntApp.useApp()
+
   const [sessions, setSessions] = useState<any[]>([])
   const [runs, setRuns] = useState<any[]>([])
+  // track loading state per item to disable button while downloading
+  const [loadingId, setLoadingId] = useState<string | null>(null)
 
   useEffect(() => {
     listSessions().then(r => setSessions(r.data))
     listRuns().then(r => setRuns(r.data.filter((run: any) => run.status === 'success')))
   }, [])
+
+  /** fetch ผ่าน axios (มี Bearer token) แล้ว trigger browser download */
+  const triggerDownload = async (url: string, filename: string) => {
+    try {
+      const res = await api.get(url, { responseType: 'blob' })
+      const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/octet-stream' })
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(blobUrl)
+    } catch (err: any) {
+      // ถ้า responseType=blob แล้ว backend ตอบ error (JSON) — อ่าน status จาก err.response
+      const status = err?.response?.status
+      if (status === 401) {
+        message.error('Session หมดอายุ กรุณา Login ใหม่')
+      } else if (status === 404) {
+        message.error('ไม่พบไฟล์บนเซิร์ฟเวอร์ (อาจถูกลบออกแล้ว)')
+      } else {
+        message.error(`ดาวน์โหลดไม่สำเร็จ (${status ?? 'network error'}) — กรุณาลองใหม่`)
+      }
+    }
+  }
 
   return (
     <div style={{ padding: 32 }} className="animate-fade-in">
@@ -45,8 +77,16 @@ export default function Downloads() {
                       <Button
                         key="dl"
                         icon={<DownloadOutlined />}
-                        href={downloadUpload(s.id)}
-                        download
+                        loading={loadingId === `upload-${s.id}`}
+                        onClick={async () => {
+                          const key = `upload-${s.id}`
+                          setLoadingId(key)
+                          await triggerDownload(
+                            `/api/download/upload/${s.id}`,
+                            s.filename || `upload_${s.id}.xlsx`,
+                          )
+                          setLoadingId(null)
+                        }}
                       >
                         ดาวน์โหลด
                       </Button>,
@@ -96,8 +136,17 @@ export default function Downloads() {
                         key="dl"
                         type="primary"
                         icon={<DownloadOutlined />}
-                        href={downloadResult(r.id)}
-                        download
+                        loading={loadingId === `result-${r.id}`}
+                        onClick={async () => {
+                          const key = `result-${r.id}`
+                          setLoadingId(key)
+                          const filename = `result_run${r.id}_seed${r.seed}.xlsx`
+                          await triggerDownload(
+                            `/api/download/result/${r.id}`,
+                            filename,
+                          )
+                          setLoadingId(null)
+                        }}
                       >
                         ดาวน์โหลด
                       </Button>,

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   Card, Select, Tabs, Table, Tag, Typography,
-  Flex, Row, Col, Button, Empty, Badge, Tooltip,
+  Flex, Row, Col, Button, Empty, Badge, Tooltip, Switch,
 } from 'antd'
 import {
   BarChartOutlined, DownloadOutlined, SwapOutlined,
@@ -41,6 +41,9 @@ export default function Results() {
   const [statsStudent, setStatsStudent] = useState<any>(null)
   const [statsProfessor, setStatsProfessor] = useState<any>(null)
   const [loading, setLoading] = useState(false)
+  // Toggle states for comparison table
+  const [showDiffOnly, setShowDiffOnly] = useState(false)
+  const [sortByImpact, setSortByImpact] = useState(false)
 
   useEffect(() => {
     listRuns().then(res => {
@@ -78,24 +81,54 @@ export default function Results() {
     const profMap = new Map(resultsProfessor.map(r => [r.group_code, r]))
     return resultsStudent.map((s, i) => {
       const p = profMap.get(s.group_code)
+      const sRank = s.rank_given ?? 0
+      const pRank = p?.rank_given ?? 0
+      // impact = |rank_professor_proposing - rank_student_proposing|
+      // คำนวณที่ Frontend เพราะข้อมูล Rank ทั้งสองฝั่งมีอยู่แล้ว ไม่จำเป็นต้องแก้ Backend
+      const impact = Math.abs(pRank - sRank)
       return {
         key: String(i),
         group_code: s.group_code,
         s_prof: s.assigned_prof,
         s_rank: s.rank_given,
-        s_main: s.main_score,
         p_prof: p?.assigned_prof ?? null,
         p_rank: p?.rank_given ?? null,
-        p_main: p?.main_score ?? null,
         diff: s.assigned_prof !== (p?.assigned_prof ?? null),
+        impact,
       }
     })
   }, [resultsStudent, resultsProfessor])
 
+  // numDiff คำนวณจากข้อมูลเต็มเสมอ — ไม่เปลี่ยนตาม toggle ที่เปิดอยู่
   const numDiff = compRows.filter(r => r.diff).length
 
+  // displayRows: กรอง → เรียง → แสดง (ลำดับสำคัญ ต้องไม่สลับ)
+  const displayRows = useMemo(() => {
+    // ขั้น 1: กรองตาม showDiffOnly
+    let rows = showDiffOnly ? compRows.filter(r => r.diff) : [...compRows]
+    // ขั้น 2: เรียงตาม sortByImpact (impact=0 อยู่ท้ายสุด)
+    if (sortByImpact) {
+      rows = rows.slice().sort((a, b) => {
+        if (a.impact === 0 && b.impact === 0) return 0
+        if (a.impact === 0) return 1
+        if (b.impact === 0) return -1
+        return b.impact - a.impact
+      })
+    }
+    return rows
+  }, [compRows, showDiffOnly, sortByImpact])
+
+  /*
+   * NOTE: คอลัมน์ Score ถูกลบออกโดยตั้งใจ — ห้ามเพิ่มกลับ
+   * Score เป็นคะแนนที่อาจารย์แต่ละคนให้ตาม Rubric ของตัวเอง
+   * ใช้เป็น Ordinal Preference ภายในรายการของอาจารย์คนนั้นเท่านั้น
+   * ไม่ได้ถูกออกแบบให้เทียบข้ามอาจารย์คนละคนได้
+   * การวางคอลัมน์ Score จากอาจารย์ 2 คนต่างกันไว้ข้างกันทำให้แอดมินเข้าใจผิด
+   * ว่าเทียบกันได้โดยตรง (เช่น "89 ดีกว่า 38") ทั้งที่ไม่ใช่
+   */
   const compColumns: ColumnsType<any> = [
     {
+      // # นับใหม่ตามแถวที่แสดงจริงบนหน้าจอ (ไม่ใช่เลขเดิมจาก list เต็ม)
       title: '#', key: 'idx', width: 44,
       render: (_: any, __: any, i: number) => <Text type="secondary">{i + 1}</Text>,
     },
@@ -114,15 +147,11 @@ export default function Results() {
             : <Text strong style={{ color: '#1677ff' }}>{v}</Text>,
         },
         {
+          // คง 'อันดับ' ไว้ — เป็นข้อมูลที่เทียบข้ามได้จริง (มาจาก Ranking List เดียวกันของกลุ่มนั้น)
           title: 'อันดับ', dataIndex: 's_rank', key: 's_rank',
           align: 'center' as const, width: 70,
           render: (v: number) => v
             ? <Text strong style={{ color: rankColor(v) }}>{v}</Text> : '—',
-        },
-        {
-          title: 'Score', dataIndex: 's_main', key: 's_main',
-          align: 'center' as const, width: 72,
-          render: (v: number) => <Text type="secondary">{v ?? '—'}</Text>,
         },
       ],
     },
@@ -145,19 +174,16 @@ export default function Results() {
             : <Text strong style={{ color: '#722ed1' }}>{v}</Text>,
         },
         {
+          // คง 'อันดับ' ไว้ — เป็นข้อมูลที่เทียบข้ามได้จริง (มาจาก Ranking List เดียวกันของกลุ่มนั้น)
           title: 'อันดับ', dataIndex: 'p_rank', key: 'p_rank',
           align: 'center' as const, width: 70,
           render: (v: number) => v
             ? <Text strong style={{ color: rankColor(v) }}>{v}</Text> : '—',
         },
-        {
-          title: 'Score', dataIndex: 'p_main', key: 'p_main',
-          align: 'center' as const, width: 72,
-          render: (v: number) => <Text type="secondary">{v ?? '—'}</Text>,
-        },
       ],
     },
     {
+      // Binary Indicator — คงเป็น ต่าง/— เหมือนเดิม ไม่เพิ่มทิศทางหรือขนาดผลต่าง
       title: (
         <Tooltip title="ผลจากสองโหมดต่างกันหรือไม่">
           <SwapOutlined />
@@ -304,17 +330,40 @@ export default function Results() {
       ),
       children: (
         <div>
-          <Flex align="center" gap={16} style={{ marginBottom: 12 }}>
-            <Badge color="#1677ff" text={<Text style={{ fontSize: 12 }}>Student-Proposing</Text>} />
-            <Badge color="#722ed1" text={<Text style={{ fontSize: 12 }}>Professor-Proposing</Text>} />
-            {numDiff > 0 && (
-              <Text type="warning" style={{ fontSize: 12 }}>
-                ⚠ {numDiff} กลุ่มได้ผลต่างกันระหว่างสองโหมด
-              </Text>
-            )}
+          {/* แถว Legend + Toggle controls — ข้อความ numDiff คงค่าจากข้อมูลเต็มเสมอ ไม่เปลี่ยนตาม filter */}
+          <Flex align="center" justify="space-between" wrap="wrap" gap={8} style={{ marginBottom: 12 }}>
+            <Flex align="center" gap={16}>
+              <Badge color="#1677ff" text={<Text style={{ fontSize: 12 }}>Student-Proposing</Text>} />
+              <Badge color="#722ed1" text={<Text style={{ fontSize: 12 }}>Professor-Proposing</Text>} />
+              {numDiff > 0 && (
+                <Text type="warning" style={{ fontSize: 12 }}>
+                  ⚠ {numDiff} กลุ่มได้ผลต่างกันระหว่างสองโหมด
+                </Text>
+              )}
+            </Flex>
+            <Flex align="center" gap={16}>
+              <Flex align="center" gap={6}>
+                <Switch
+                  size="small"
+                  checked={showDiffOnly}
+                  onChange={setShowDiffOnly}
+                  id="toggle-show-diff-only"
+                />
+                <Text style={{ fontSize: 12, userSelect: 'none' }}>แสดงเฉพาะกลุ่มที่ต่างกัน</Text>
+              </Flex>
+              <Flex align="center" gap={6}>
+                <Switch
+                  size="small"
+                  checked={sortByImpact}
+                  onChange={setSortByImpact}
+                  id="toggle-sort-by-impact"
+                />
+                <Text style={{ fontSize: 12, userSelect: 'none' }}>เรียงตาม Impact</Text>
+              </Flex>
+            </Flex>
           </Flex>
           <Table
-            dataSource={compRows}
+            dataSource={displayRows}
             columns={compColumns}
             rowKey="key"
             size="small"

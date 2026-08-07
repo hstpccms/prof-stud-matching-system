@@ -1,4 +1,4 @@
-# Prompt สำหรับ Antigravity IDE — ปรับตาราง Student-Proposing vs Professor-Proposing
+# Prompt สำหรับ Antigravity IDE — ปรับตาราง Student-Proposing vs Professor-Proposing ในแท็บ Final Matching
 
 > คัดลอกเนื้อหาด้านล่างวางใน Antigravity IDE ได้เลย แนบ Screenshot หน้าตารางปัจจุบันไปด้วย เพื่อให้ AI เห็นโครงสร้าง Component เดิมก่อนแก้
 
