@@ -1,13 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   Card, Select, Tabs, Table, Tag, Typography,
-  Flex, Row, Col, Button, Empty, Badge, Tooltip, Switch,
+  Flex, Row, Col, Button, Empty, Badge, Tooltip, Switch, App as AntApp,
 } from 'antd'
 import {
   BarChartOutlined, DownloadOutlined, SwapOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import { listRuns, getResults, getProfSummary, getStats, downloadResult } from '../api/client'
+import { listRuns, getResults, getProfSummary, getStats } from '../api/client'
+import api from '../api/client'
 
 const { Title, Text } = Typography
 
@@ -30,6 +31,7 @@ function rankColor(v: number | null): string {
 }
 
 export default function Results() {
+  const { message } = AntApp.useApp()
   const [runs, setRuns] = useState<any[]>([])
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null)
   const [tab, setTab] = useState<Tab>('matching')
@@ -41,9 +43,30 @@ export default function Results() {
   const [statsStudent, setStatsStudent] = useState<any>(null)
   const [statsProfessor, setStatsProfessor] = useState<any>(null)
   const [loading, setLoading] = useState(false)
+  const [downloadingRun, setDownloadingRun] = useState(false)
   // Toggle states for comparison table
   const [showDiffOnly, setShowDiffOnly] = useState(false)
   const [sortByImpact, setSortByImpact] = useState(false)
+
+  const triggerDownload = async (url: string, filename: string) => {
+    try {
+      const res = await api.get(url, { responseType: 'blob' })
+      const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/octet-stream' })
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(blobUrl)
+    } catch (err: any) {
+      const status = err?.response?.status
+      if (status === 401) message.error('Session หมดอายุ กรุณา Login ใหม่')
+      else if (status === 404) message.error('ไม่พบไฟล์บนเซิร์ฟเวอร์')
+      else message.error(`ดาวน์โหลดไม่สำเร็จ (${status ?? 'network error'})`)
+    }
+  }
 
   useEffect(() => {
     listRuns().then(res => {
@@ -528,8 +551,16 @@ export default function Results() {
           {selectedRunId && (
             <Button
               icon={<DownloadOutlined />}
-              href={downloadResult(selectedRunId)}
-              download
+              loading={downloadingRun}
+              onClick={async () => {
+                const run = runs.find(r => r.id === selectedRunId)
+                setDownloadingRun(true)
+                await triggerDownload(
+                  `/download/result/${selectedRunId}`,
+                  `result_run${selectedRunId}_seed${run?.seed ?? 0}.xlsx`,
+                )
+                setDownloadingRun(false)
+              }}
             >
               ดาวน์โหลด Excel
             </Button>

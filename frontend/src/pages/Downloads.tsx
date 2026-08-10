@@ -82,7 +82,7 @@ export default function Downloads() {
                           const key = `upload-${s.id}`
                           setLoadingId(key)
                           await triggerDownload(
-                            `/api/download/upload/${s.id}`,
+                            `/download/upload/${s.id}`,
                             s.filename || `upload_${s.id}.xlsx`,
                           )
                           setLoadingId(null)
@@ -142,7 +142,7 @@ export default function Downloads() {
                           setLoadingId(key)
                           const filename = `result_run${r.id}_seed${r.seed}.xlsx`
                           await triggerDownload(
-                            `/api/download/result/${r.id}`,
+                            `/download/result/${r.id}`,
                             filename,
                           )
                           setLoadingId(null)
