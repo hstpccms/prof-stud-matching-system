@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from database import engine
 import models
-from routers import auth, data, matching, download
+from routers import auth, data, matching, download, webhook
 
 
 @asynccontextmanager
@@ -30,7 +30,12 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "https://*.ngrok-free.app",  # อนุญาต Ngrok URL (สำหรับทดสอบ)
+    ],
+    allow_origin_regex=r"https://.*\.ngrok-free\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -40,6 +45,7 @@ app.include_router(auth.router)
 app.include_router(data.router)
 app.include_router(matching.router)
 app.include_router(download.router)
+app.include_router(webhook.router)
 
 
 @app.get("/")

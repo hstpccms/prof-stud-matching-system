@@ -23,6 +23,11 @@ class ImportSessionOut(BaseModel):
     uploaded_at: datetime
     filename: Optional[str]
     status: str
+    is_active: Optional[bool] = False
+    source: Optional[str] = "excel"
+    expected_student_count: Optional[int] = None
+    expected_prof_count: Optional[int] = None
+    codes_generated: Optional[bool] = False
 
     model_config = {"from_attributes": True}
 
@@ -146,3 +151,103 @@ class DashboardStats(BaseModel):
     incomplete_groups: List[str]  # anonymous_codes of groups not fully ranked
     incomplete_profs: List[str]   # anonymous_codes of profs not fully scored
     latest_run: Optional[MatchingRunOut]
+
+
+# ── Webhook / MS Forms ────────────────────────────────────────────────────────────────
+
+class ActivateSessionRequest(BaseModel):
+    """Request body for POST /api/webhook/activate"""
+    expected_student_count: int  # จำนวนนักศึกษา unique ทั้งหมดที่คาดว่าจะส่งฟอร์ม
+    expected_prof_count: int     # จำนวนอาจารย์ทั้งหมดที่คาดว่าจะส่งฟอร์ม
+
+
+# ── Form 1: ข้อมูลกลุ่มนักศึกษา ────────────────────────────────────────────────────────────
+class StudentMemberIn(BaseModel):
+    student_id: str
+    full_name: str
+
+
+class FormGroupInfoIn(BaseModel):
+    """Request body for POST /api/webhook/group-info (Form 1)"""
+    members: List[StudentMemberIn]      # รหัส + ชื่อ-นามสกุล สมาชิกทุกคน
+    topic1_title: str
+    topic1_detail: Optional[str] = None
+    topic2_title: str
+    topic2_detail: Optional[str] = None
+    topic3_title: str
+    topic3_detail: Optional[str] = None
+
+
+# ── Form 2: ข้อมูลอาจารย์ ───────────────────────────────────────────────────────────────
+class FormProfInfoIn(BaseModel):
+    """Request body for POST /api/webhook/prof-info (Form 2)"""
+    full_name: str
+    expertise: str
+    quota: int
+
+
+# ── Form 3: นักศึกษาจัดอันดับอาจารย์ (MS Forms Ranking) ────────────────────────────────────
+class ProfRankEntryIn(BaseModel):
+    prof_anonymous_code: str
+    rank: int
+
+
+class FormStudentRankingIn(BaseModel):
+    """Request body for POST /api/webhook/student-ranking (Form 3)"""
+    group_anonymous_code: str
+    rankings: List[ProfRankEntryIn]
+
+
+# ── Form 4: อาจารย์ให้คะแนนกลุ่ม ──────────────────────────────────────────────────────────────
+class GroupScoreEntryIn(BaseModel):
+    group_anonymous_code: str
+    score_a: int
+    score_b: int
+
+
+class FormProfScoreIn(BaseModel):
+    """Request body for POST /api/webhook/prof-score (Form 4)"""
+    prof_anonymous_code: str
+    scores: List[GroupScoreEntryIn]
+
+
+# ── Webhook Status Output ───────────────────────────────────────────────────────────────────
+class GroupAnonymousCodeOut(BaseModel):
+    group_id: int
+    anonymous_code: str
+    member_count: int
+
+    model_config = {"from_attributes": True}
+
+
+class ProfAnonymousCodeOut(BaseModel):
+    prof_id: int
+    anonymous_code: str
+    full_name: str
+
+    model_config = {"from_attributes": True}
+
+
+class WebhookStatusOut(BaseModel):
+    """สถานะการรับฟอร์มทั้งหมดสำหรับแสดงบน Dashboard"""
+    session_id: Optional[int]
+    is_active: bool
+    source: str
+    codes_generated: bool
+    # ── Form 1 stats
+    expected_student_count: Optional[int]
+    received_student_count: int          # unique student_ids ที่ส่งมาแล้ว
+    received_group_count: int            # จำนวนกลุ่มที่ส่ง Form 1 แล้ว
+    form1_ready: bool                    # student count ครบตาม expected
+    # ── Form 2 stats
+    expected_prof_count: Optional[int]
+    received_prof_count: int             # จำนวนอาจารย์ที่ส่ง Form 2 แล้ว
+    form2_ready: bool                    # prof count ครบตาม expected
+    # ── Form 3 & 4 stats (มีข้อมูลหลัง generate codes)
+    ranked_group_count: int              # กลุ่มที่จัดอันดับแล้ว
+    scored_prof_count: int               # อาจารย์ที่ให้คะแนนแล้ว
+    pct_groups_ranked: float
+    pct_profs_scored: float
+    # ── Code tables (เพื่อแสดงตาราง mapping หลัง generate)
+    group_codes: List[GroupAnonymousCodeOut]
+    prof_codes: List[ProfAnonymousCodeOut]

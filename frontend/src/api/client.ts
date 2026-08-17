@@ -69,4 +69,10 @@ export const downloadUpload = (sid: number) =>
 export const downloadResult = (runId: number) =>
   `/api/download/result/${runId}`
 
+// ── Webhook / MS Forms ───────────────────────────────────────────────────────
+export const getWebhookStatus = () => api.get('/webhook/status')
+export const activateWebhookSession = (expected_student_count: number, expected_prof_count: number) =>
+  api.post('/webhook/activate', { expected_student_count, expected_prof_count })
+export const generateAnonymousCodes = () => api.post('/webhook/generate-codes')
+
 export default api

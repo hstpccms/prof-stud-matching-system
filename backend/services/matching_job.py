@@ -40,7 +40,18 @@ def _export_input_excel(session_id: int, db: Session, tmp_path: str):
             pass
         while len(topics) < 3:
             topics.append("")
-        ws.append([g.group_id, g.anonymous_code, g.representative, g.member_count] + topics[:3])
+        # แปลง topic dict → string สำหรับเขียนลง Excel
+        topic_strs = []
+        for t in topics[:3]:
+            if isinstance(t, dict):
+                title = t.get("title", "")
+                detail = t.get("detail", "")
+                topic_strs.append(f"{title} — {detail}".strip(" —") if detail else title)
+            else:
+                topic_strs.append(str(t) if t else "")
+        while len(topic_strs) < 3:
+            topic_strs.append("")
+        ws.append([g.group_id, g.anonymous_code, g.representative, g.member_count] + topic_strs)
 
     # ── Professor_Info ──────────────────────────────────────────────────────
     ws2 = wb.create_sheet("Professor_Info")

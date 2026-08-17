@@ -24,12 +24,19 @@ class ImportSession(Base):
     filename = Column(String)
     file_path = Column(String)
     status = Column(String, default="pending")  # pending|imported|validated|failed
+    # ── Webhook / Forms fields ────────────────────────────────────────────────
+    is_active              = Column(Boolean, default=False)   # True = กำลังรับข้อมูลจากฟอร์มอยู่
+    source                 = Column(String, default="excel")  # "excel" | "forms"
+    expected_student_count = Column(Integer, nullable=True)   # จำนวน นศ. unique ที่คาดว่าจะส่งฟอร์ม
+    expected_prof_count    = Column(Integer, nullable=True)   # จำนวนอาจารย์ที่คาดว่าจะส่งฟอร์ม
+    codes_generated        = Column(Boolean, default=False)   # สร้าง anonymous_code แล้วหรือยัง
 
     groups = relationship("Group", back_populates="session", cascade="all, delete-orphan")
     professors = relationship("Professor", back_populates="session", cascade="all, delete-orphan")
     student_rankings = relationship("StudentRanking", back_populates="session", cascade="all, delete-orphan")
     professor_scores = relationship("ProfessorScore", back_populates="session", cascade="all, delete-orphan")
     matching_runs = relationship("MatchingRun", back_populates="session")
+    student_members = relationship("StudentMember", back_populates="session", cascade="all, delete-orphan")
 
 
 class Group(Base):
@@ -43,6 +50,7 @@ class Group(Base):
     topic_interest = Column(Text)  # JSON string
 
     session = relationship("ImportSession", back_populates="groups")
+    members = relationship("StudentMember", back_populates="group")
 
     def get_topics(self):
         if self.topic_interest:
@@ -127,3 +135,19 @@ class MatchingResult(Base):
     mode = Column(String, default="student")  # "student" | "professor"
 
     run = relationship("MatchingRun", back_populates="results")
+
+
+class StudentMember(Base):
+    """
+    เก็บข้อมูลสมาชิกแต่ละคนที่ส่งมาจาก MS Form 1 (ก่อน Assign anonymous_code)
+    """
+    __tablename__ = "student_members"
+    id         = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(Integer, ForeignKey("import_sessions.id"), nullable=False)
+    group_id   = Column(Integer, ForeignKey("groups.id"), nullable=True)  # กำหนดหลัง generate codes
+    student_id = Column(String, nullable=False)  # รหัสนักศึกษา
+    full_name  = Column(String)
+    submitted_at = Column(DateTime, default=datetime.utcnow)
+
+    session = relationship("ImportSession", back_populates="student_members")
+    group   = relationship("Group", back_populates="members")

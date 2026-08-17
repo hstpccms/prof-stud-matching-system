@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Upload, Button, Select, Tabs, Table, Tag, Alert,
   Card, Typography, Space, Flex, App as AntApp, Spin,
@@ -29,7 +29,6 @@ export default function DataManagement() {
   const [validating, setValidating] = useState(false)
   const [loadingTable, setLoadingTable] = useState(false)
   // suppress unused ref warning — kept for future direct file input use
-  const _fileRef = useRef<HTMLInputElement>(null)
 
   const fetchSessions = async () => {
     const res = await listSessions()

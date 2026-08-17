@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🧪 Mock Power Automate — ทดสอบ Webhook</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', -apple-system, sans-serif;
+      background: #0f0f1a;
+      color: #e0e0f0;
+      min-height: 100vh;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #1a1a3e 0%, #0d1b4b 100%);
+      border-bottom: 1px solid #2a2a5a;
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .header h1 { font-size: 20px; font-weight: 700; color: #a0c4ff; }
+    .header span { font-size: 13px; color: #6070a0; }
+    .badge {
+      background: #1e3a6e;
+      border: 1px solid #2a5aae;
+      color: #7ab0ff;
+      font-size: 11px;
+      padding: 2px 10px;
+      border-radius: 99px;
+      margin-left: auto;
+    }
+
+    .container { max-width: 960px; margin: 0 auto; padding: 28px 20px; }
+
+    /* Secret bar */
+    .secret-bar {
+      background: #1a1a2e;
+      border: 1px solid #2a2a5a;
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .secret-bar label { font-size: 12px; color: #7080a0; white-space: nowrap; }
+    .secret-bar input {
+      flex: 1;
+      background: #0f0f1a;
+      border: 1px solid #2a2a5a;
+      border-radius: 8px;
+      color: #c0d0ff;
+      padding: 7px 12px;
+      font-size: 13px;
+      font-family: monospace;
+    }
+
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+    .tab-btn {
+      padding: 9px 18px;
+      border: 1px solid #2a2a5a;
+      border-radius: 8px;
+      background: #1a1a2e;
+      color: #7080a0;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .tab-btn:hover { border-color: #4060b0; color: #a0b8ff; }
+    .tab-btn.active {
+      background: #1e3a6e;
+      border-color: #3060c0;
+      color: #a0c4ff;
+      font-weight: 600;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Card */
+    .card {
+      background: #1a1a2e;
+      border: 1px solid #2a2a5a;
+      border-radius: 14px;
+      padding: 22px;
+      margin-bottom: 16px;
+    }
+    .card-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: #a0c4ff;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .card-title .method {
+      background: #0d4020;
+      border: 1px solid #1a6030;
+      color: #50c080;
+      font-size: 10px;
+      padding: 1px 7px;
+      border-radius: 4px;
+      font-weight: 700;
+      letter-spacing: .5px;
+    }
+    .card-title .path {
+      font-family: monospace;
+      font-size: 12px;
+      color: #6080a0;
+    }
+
+    /* Form controls */
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 11px; color: #6070a0; margin-bottom: 5px; text-transform: uppercase; letter-spacing: .5px; }
+    .field input, .field textarea, .field select {
+      width: 100%;
+      background: #0f0f1a;
+      border: 1px solid #2a2a5a;
+      border-radius: 8px;
+      color: #c0d0ff;
+      padding: 8px 12px;
+      font-size: 13px;
+    }
+    .field textarea { min-height: 80px; resize: vertical; font-family: monospace; }
+    .field input:focus, .field textarea:focus {
+      outline: none;
+      border-color: #3060c0;
+    }
+
+    .row { display: flex; gap: 12px; }
+    .row .field { flex: 1; }
+
+    /* Member list */
+    .member-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+    .member-row { display: flex; gap: 8px; align-items: center; }
+    .member-row input { flex: 1; }
+    .member-row .rm-btn {
+      background: #2a1a1a;
+      border: 1px solid #5a2a2a;
+      color: #c07070;
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .member-row .rm-btn:hover { background: #3a1a1a; }
+
+    /* Ranking list */
+    .ranking-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+    .ranking-row { display: flex; gap: 8px; align-items: center; }
+    .ranking-row input { flex: 1; }
+    .ranking-row .rank-num { background: #0f0f1a; border: 1px solid #2a2a5a; color: #a0c4ff; padding: 6px 10px; border-radius: 6px; font-size: 13px; width: 60px; text-align: center; }
+
+    /* Score list */
+    .score-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px; }
+    .score-row { display: flex; gap: 8px; align-items: center; }
+    .score-row input { flex: 1; }
+    .score-row .score-a, .score-row .score-b { width: 70px; }
+
+    /* Buttons */
+    .btn-primary {
+      background: linear-gradient(135deg, #1a4a9e, #2060d0);
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 10px 22px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .btn-primary:hover { filter: brightness(1.15); }
+    .btn-primary:active { transform: scale(.97); }
+    .btn-primary:disabled { opacity: .5; cursor: not-allowed; }
+
+    .btn-secondary {
+      background: #1a2a4e;
+      border: 1px solid #2a4a8e;
+      border-radius: 8px;
+      color: #7090c0;
+      font-size: 12px;
+      padding: 7px 14px;
+      cursor: pointer;
+      transition: all .15s;
+    }
+    .btn-secondary:hover { border-color: #4070c0; color: #a0b8ff; }
+
+    .btn-danger {
+      background: #2a1a1a;
+      border: 1px solid #5a2a2a;
+      border-radius: 8px;
+      color: #c07070;
+      font-size: 12px;
+      padding: 7px 14px;
+      cursor: pointer;
+    }
+    .btn-danger:hover { background: #3a1a1a; }
+
+    /* Response area */
+    .response-box {
+      background: #0a0a14;
+      border: 1px solid #1a2a4a;
+      border-radius: 10px;
+      padding: 14px;
+      margin-top: 14px;
+      font-family: monospace;
+      font-size: 12px;
+      min-height: 60px;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .response-box.ok { border-color: #1a5a2a; color: #60c080; }
+    .response-box.err { border-color: #5a1a1a; color: #c06060; }
+    .response-box.idle { color: #404060; }
+
+    /* Status indicator */
+    .status-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      margin-right: 6px;
+    }
+    .status-dot.ok { background: #40c060; box-shadow: 0 0 6px #40c060; }
+    .status-dot.err { background: #c04040; box-shadow: 0 0 6px #c04040; }
+    .status-dot.idle { background: #404060; }
+
+    /* Section divider */
+    .divider { border: none; border-top: 1px solid #2a2a5a; margin: 16px 0; }
+
+    .hint { font-size: 11px; color: #4a5a7a; margin-top: 4px; }
+    .tag { background: #1e3050; border: 1px solid #2a4a80; color: #6090c0; font-size: 10px; padding: 1px 7px; border-radius: 4px; }
+    .spinner { display: inline-block; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div style="font-size:24px">⚡</div>
+  <div>
+    <h1>Mock Power Automate</h1>
+    <span>ทดสอบ Webhook โดยไม่ต้องใช้ MS Forms จริง</span>
+  </div>
+  <div class="badge">DEV ONLY</div>
+</div>
+
+<div class="container">
+
+  <!-- Webhook Secret -->
+  <div class="secret-bar">
+    <label>🔑 X-Webhook-Secret</label>
+    <input type="text" id="webhookSecret" value="changeme-set-in-env" placeholder="ค่า WEBHOOK_SECRET ใน .env" />
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('f1')">📋 Form 1: ข้อมูลกลุ่ม</button>
+    <button class="tab-btn" onclick="switchTab('f2')">👨‍🏫 Form 2: ข้อมูลอาจารย์</button>
+    <button class="tab-btn" onclick="switchTab('f3')">📊 Form 3: จัดอันดับ</button>
+    <button class="tab-btn" onclick="switchTab('f4')">⭐ Form 4: ให้คะแนน</button>
+  </div>
+
+  <!-- ═══ FORM 1 ═══ -->
+  <div class="tab-panel active" id="tab-f1">
+    <div class="card">
+      <div class="card-title">
+        <span class="method">POST</span>
+        <span class="path">/api/webhook/group-info</span>
+        <span class="tag">Form 1</span>
+      </div>
+
+      <div class="field">
+        <label>สมาชิกกลุ่ม <span class="hint" style="display:inline">(รหัสนักศึกษา + ชื่อ-นามสกุล)</span></label>
+        <div class="member-list" id="memberList">
+          <div class="member-row">
+            <input type="text" placeholder="รหัสนักศึกษา เช่น 65001" class="sid-input" />
+            <input type="text" placeholder="ชื่อ-นามสกุล" class="sname-input" />
+            <button class="rm-btn" onclick="removeMember(this)">✕</button>
+          </div>
+          <div class="member-row">
+            <input type="text" placeholder="รหัสนักศึกษา เช่น 65002" class="sid-input" />
+            <input type="text" placeholder="ชื่อ-นามสกุล" class="sname-input" />
+            <button class="rm-btn" onclick="removeMember(this)">✕</button>
+          </div>
+        </div>
+        <button class="btn-secondary" onclick="addMember()">+ เพิ่มสมาชิก</button>
+      </div>
+
+      <hr class="divider" />
+
+      <div class="row">
+        <div class="field">
+          <label>หัวข้อสนใจ 1 (Title) <span style="color:#c04040">*</span></label>
+          <input type="text" id="t1" value="AI / Machine Learning" />
+        </div>
+        <div class="field">
+          <label>รายละเอียด 1</label>
+          <input type="text" id="d1" value="โปรแกรมจำแนกภาพด้วย CNN" />
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>หัวข้อสนใจ 2 (Title) <span style="color:#c04040">*</span></label>
+          <input type="text" id="t2" value="IoT / Smart Home" />
+        </div>
+        <div class="field">
+          <label>รายละเอียด 2</label>
+          <input type="text" id="d2" value="ระบบควบคุมบ้านผ่าน MQTT" />
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>หัวข้อสนใจ 3 (Title) <span style="color:#c04040">*</span></label>
+          <input type="text" id="t3" value="Web Full Stack" />
+        </div>
+        <div class="field">
+          <label>รายละเอียด 3</label>
+          <input type="text" id="d3" value="ระบบจัดการคลังสินค้า" />
+        </div>
+      </div>
+
+      <div style="margin-top:16px; display:flex; gap:10px; align-items:center">
+        <button class="btn-primary" id="sendF1" onclick="sendForm1()">⚡ ส่ง Form 1</button>
+        <button class="btn-secondary" onclick="fillSampleF1()">🎲 เติมตัวอย่าง</button>
+      </div>
+      <div class="response-box idle" id="respF1">— กด "ส่ง Form 1" เพื่อทดสอบ —</div>
+    </div>
+  </div>
+
+  <!-- ═══ FORM 2 ═══ -->
+  <div class="tab-panel" id="tab-f2">
+    <div class="card">
+      <div class="card-title">
+        <span class="method">POST</span>
+        <span class="path">/api/webhook/prof-info</span>
+        <span class="tag">Form 2</span>
+      </div>
+
+      <div class="field">
+        <label>ชื่อ-นามสกุลอาจารย์ <span style="color:#c04040">*</span></label>
+        <input type="text" id="profName" value="อ.ดร. สมชาย ใจดี" />
+      </div>
+      <div class="field">
+        <label>ขอบเขตหัวข้อภาคนิพนธ์ที่รับ <span style="color:#c04040">*</span></label>
+        <input type="text" id="profExpertise" value="AI, Machine Learning, Computer Vision" />
+      </div>
+      <div class="field" style="max-width:160px">
+        <label>Quota (จำนวนกลุ่มที่รับได้)</label>
+        <input type="number" id="profQuota" value="3" min="1" max="20" />
+      </div>
+
+      <div style="margin-top:16px; display:flex; gap:10px; align-items:center">
+        <button class="btn-primary" onclick="sendForm2()">⚡ ส่ง Form 2</button>
+        <button class="btn-secondary" onclick="fillSampleF2()">🎲 เติมตัวอย่าง</button>
+      </div>
+      <div class="response-box idle" id="respF2">— กด "ส่ง Form 2" เพื่อทดสอบ —</div>
+    </div>
+  </div>
+
+  <!-- ═══ FORM 3 ═══ -->
+  <div class="tab-panel" id="tab-f3">
+    <div class="card">
+      <div class="card-title">
+        <span class="method">POST</span>
+        <span class="path">/api/webhook/student-ranking</span>
+        <span class="tag">Form 3</span>
+        <span class="hint" style="margin-left:auto">ต้อง Generate Codes ก่อน</span>
+      </div>
+
+      <div class="field" style="max-width:200px">
+        <label>Group Anonymous Code <span style="color:#c04040">*</span></label>
+        <input type="text" id="rankGroupCode" value="G001" placeholder="เช่น G001" />
+      </div>
+
+      <div class="field">
+        <label>การจัดอันดับ (Prof Code → Rank)</label>
+        <div class="ranking-list" id="rankingList">
+          <div class="ranking-row">
+            <input type="text" placeholder="Prof Code เช่น P001" class="pcode-input" />
+            <input type="number" placeholder="Rank" class="rank-num" value="1" min="1" />
+            <button class="rm-btn" onclick="removeRanking(this)">✕</button>
+          </div>
+          <div class="ranking-row">
+            <input type="text" placeholder="Prof Code เช่น P002" class="pcode-input" />
+            <input type="number" placeholder="Rank" class="rank-num" value="2" min="1" />
+            <button class="rm-btn" onclick="removeRanking(this)">✕</button>
+          </div>
+        </div>
+        <button class="btn-secondary" onclick="addRanking()">+ เพิ่มอาจารย์</button>
+      </div>
+
+      <div style="margin-top:16px; display:flex; gap:10px">
+        <button class="btn-primary" onclick="sendForm3()">⚡ ส่ง Form 3</button>
+      </div>
+      <div class="response-box idle" id="respF3">— กด "ส่ง Form 3" เพื่อทดสอบ —</div>
+    </div>
+  </div>
+
+  <!-- ═══ FORM 4 ═══ -->
+  <div class="tab-panel" id="tab-f4">
+    <div class="card">
+      <div class="card-title">
+        <span class="method">POST</span>
+        <span class="path">/api/webhook/prof-score</span>
+        <span class="tag">Form 4</span>
+        <span class="hint" style="margin-left:auto">ต้อง Generate Codes ก่อน</span>
+      </div>
+
+      <div class="field" style="max-width:200px">
+        <label>Prof Anonymous Code <span style="color:#c04040">*</span></label>
+        <input type="text" id="scoreProfCode" value="P001" placeholder="เช่น P001" />
+      </div>
+
+      <div class="field">
+        <label>คะแนนแต่ละกลุ่ม (Score A: ความน่าสนใจ, Score B: ความเป็นไปได้)</label>
+        <div style="display:flex; gap:8px; margin-bottom:6px;">
+          <span style="width:160px; font-size:11px; color:#6070a0;">Group Code</span>
+          <span style="width:70px; font-size:11px; color:#6070a0; text-align:center;">Score A<br/>(1-5)</span>
+          <span style="width:70px; font-size:11px; color:#6070a0; text-align:center;">Score B<br/>(1-5)</span>
+        </div>
+        <div class="score-list" id="scoreList">
+          <div class="score-row">
+            <input type="text" placeholder="Group Code เช่น G001" class="gcode-input" />
+            <input type="number" placeholder="A" class="score-a" value="4" min="1" max="5" />
+            <input type="number" placeholder="B" class="score-b" value="3" min="1" max="5" />
+            <button class="rm-btn" onclick="removeScore(this)">✕</button>
+          </div>
+          <div class="score-row">
+            <input type="text" placeholder="Group Code เช่น G002" class="gcode-input" />
+            <input type="number" placeholder="A" class="score-a" value="3" min="1" max="5" />
+            <input type="number" placeholder="B" class="score-b" value="4" min="1" max="5" />
+            <button class="rm-btn" onclick="removeScore(this)">✕</button>
+          </div>
+        </div>
+        <button class="btn-secondary" onclick="addScore()">+ เพิ่มกลุ่ม</button>
+        <p class="hint" style="margin-top:6px">sub_score = (A+B)/2 | main_score = floor(sub_score)</p>
+      </div>
+
+      <div style="margin-top:16px; display:flex; gap:10px">
+        <button class="btn-primary" onclick="sendForm4()">⚡ ส่ง Form 4</button>
+      </div>
+      <div class="response-box idle" id="respF4">— กด "ส่ง Form 4" เพื่อทดสอบ —</div>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+  // ── Tab switching ─────────────────────────────────────────────────────────
+  function switchTab(id) {
+    document.querySelectorAll('.tab-btn').forEach((b, i) => {
+      const ids = ['f1','f2','f3','f4'];
+      b.classList.toggle('active', ids[i] === id);
+    });
+    document.querySelectorAll('.tab-panel').forEach(p => {
+      p.classList.toggle('active', p.id === 'tab-' + id);
+    });
+  }
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function getSecret() { return document.getElementById('webhookSecret').value.trim(); }
+
+  async function callWebhook(path, body) {
+    const r = await fetch(path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Webhook-Secret': getSecret(),
+      },
+      body: JSON.stringify(body),
+    });
+    const text = await r.text();
+    try { return { ok: r.ok, status: r.status, data: JSON.parse(text) }; }
+    catch { return { ok: r.ok, status: r.status, data: text }; }
+  }
+
+  function showResp(elId, result) {
+    const el = document.getElementById(elId);
+    el.className = 'response-box ' + (result.ok ? 'ok' : 'err');
+    const statusLine = `HTTP ${result.status} ${result.ok ? '✅ OK' : '❌ Error'}\n\n`;
+    el.textContent = statusLine + JSON.stringify(result.data, null, 2);
+  }
+
+  function setLoading(btnEl, loading) {
+    btnEl.disabled = loading;
+    btnEl.textContent = loading ? '⏳ กำลังส่ง...' : btnEl.dataset.label;
+  }
+
+  document.querySelectorAll('.btn-primary').forEach(b => { b.dataset.label = b.textContent; });
+
+  // ── Member list ───────────────────────────────────────────────────────────
+  function addMember() {
+    const list = document.getElementById('memberList');
+    const row = document.createElement('div');
+    row.className = 'member-row';
+    row.innerHTML = `
+      <input type="text" placeholder="รหัสนักศึกษา" class="sid-input" />
+      <input type="text" placeholder="ชื่อ-นามสกุล" class="sname-input" />
+      <button class="rm-btn" onclick="removeMember(this)">✕</button>`;
+    list.appendChild(row);
+  }
+  function removeMember(btn) {
+    const rows = document.querySelectorAll('.member-row');
+    if (rows.length > 1) btn.closest('.member-row').remove();
+  }
+
+  // ── Ranking list ──────────────────────────────────────────────────────────
+  function addRanking() {
+    const list = document.getElementById('rankingList');
+    const idx = list.children.length + 1;
+    const row = document.createElement('div');
+    row.className = 'ranking-row';
+    row.innerHTML = `
+      <input type="text" placeholder="Prof Code เช่น P00${idx}" class="pcode-input" />
+      <input type="number" placeholder="Rank" class="rank-num" value="${idx}" min="1" />
+      <button class="rm-btn" onclick="removeRanking(this)">✕</button>`;
+    list.appendChild(row);
+  }
+  function removeRanking(btn) {
+    const rows = document.querySelectorAll('.ranking-row');
+    if (rows.length > 1) btn.closest('.ranking-row').remove();
+  }
+
+  // ── Score list ────────────────────────────────────────────────────────────
+  function addScore() {
+    const list = document.getElementById('scoreList');
+    const row = document.createElement('div');
+    row.className = 'score-row';
+    row.innerHTML = `
+      <input type="text" placeholder="Group Code เช่น G00${list.children.length+1}" class="gcode-input" />
+      <input type="number" placeholder="A" class="score-a" value="3" min="1" max="5" />
+      <input type="number" placeholder="B" class="score-b" value="3" min="1" max="5" />
+      <button class="rm-btn" onclick="removeScore(this)">✕</button>`;
+    list.appendChild(row);
+  }
+  function removeScore(btn) {
+    const rows = document.querySelectorAll('.score-row');
+    if (rows.length > 1) btn.closest('.score-row').remove();
+  }
+
+  // ── Send Form 1 ───────────────────────────────────────────────────────────
+  async function sendForm1() {
+    const btn = document.getElementById('sendF1');
+    setLoading(btn, true);
+
+    const members = [];
+    document.querySelectorAll('.member-row').forEach(row => {
+      const sid = row.querySelector('.sid-input').value.trim();
+      const name = row.querySelector('.sname-input').value.trim();
+      if (sid && name) members.push({ student_id: sid, full_name: name });
+    });
+
+    if (members.length === 0) {
+      alert('กรุณาระบุสมาชิกอย่างน้อย 1 คน');
+      setLoading(btn, false); return;
+    }
+
+    const body = {
+      members,
+      topic1_title: document.getElementById('t1').value,
+      topic1_detail: document.getElementById('d1').value || undefined,
+      topic2_title: document.getElementById('t2').value,
+      topic2_detail: document.getElementById('d2').value || undefined,
+      topic3_title: document.getElementById('t3').value,
+      topic3_detail: document.getElementById('d3').value || undefined,
+    };
+
+    const result = await callWebhook('/api/webhook/group-info', body);
+    showResp('respF1', result);
+    setLoading(btn, false);
+  }
+
+  // ── Send Form 2 ───────────────────────────────────────────────────────────
+  async function sendForm2() {
+    const btn = event.currentTarget;
+    setLoading(btn, true);
+    const body = {
+      full_name: document.getElementById('profName').value.trim(),
+      expertise: document.getElementById('profExpertise').value.trim(),
+      quota: parseInt(document.getElementById('profQuota').value) || 3,
+    };
+    const result = await callWebhook('/api/webhook/prof-info', body);
+    showResp('respF2', result);
+    setLoading(btn, false);
+  }
+
+  // ── Send Form 3 ───────────────────────────────────────────────────────────
+  async function sendForm3() {
+    const btn = event.currentTarget;
+    setLoading(btn, true);
+    const rankings = [];
+    document.querySelectorAll('.ranking-row').forEach(row => {
+      const code = row.querySelector('.pcode-input').value.trim();
+      const rank = parseInt(row.querySelector('.rank-num').value);
+      if (code) rankings.push({ prof_anonymous_code: code, rank });
+    });
+    const body = {
+      group_anonymous_code: document.getElementById('rankGroupCode').value.trim(),
+      rankings,
+    };
+    const result = await callWebhook('/api/webhook/student-ranking', body);
+    showResp('respF3', result);
+    setLoading(btn, false);
+  }
+
+  // ── Send Form 4 ───────────────────────────────────────────────────────────
+  async function sendForm4() {
+    const btn = event.currentTarget;
+    setLoading(btn, true);
+    const scores = [];
+    document.querySelectorAll('.score-row').forEach(row => {
+      const code = row.querySelector('.gcode-input').value.trim();
+      const a = parseInt(row.querySelector('.score-a').value);
+      const b = parseInt(row.querySelector('.score-b').value);
+      if (code) scores.push({ group_anonymous_code: code, score_a: a, score_b: b });
+    });
+    const body = {
+      prof_anonymous_code: document.getElementById('scoreProfCode').value.trim(),
+      scores,
+    };
+    const result = await callWebhook('/api/webhook/prof-score', body);
+    showResp('respF4', result);
+    setLoading(btn, false);
+  }
+
+  // ── Sample data fillers ───────────────────────────────────────────────────
+  const SAMPLES_F1 = [
+    { members: [{student_id:'6501001',full_name:'นาย กิตติ สมใจ'},{student_id:'6501002',full_name:'นางสาว มนัสวี รุ่งเรือง'},{student_id:'6501003',full_name:'นาย ภูวดล ชัยชนะ'}], t1:'Deep Learning สำหรับ Image Segmentation', d1:'วิเคราะห์ภาพ CT Scan ด้วย U-Net', t2:'Computer Vision', d2:'Object Detection ด้วย YOLO', t3:'NLP / Chatbot', d3:'' },
+    { members: [{student_id:'6502001',full_name:'นาย ปณิธาน แสงทอง'},{student_id:'6502002',full_name:'นางสาว วิภา เจริญสุข'},{student_id:'6502003',full_name:'นาย อนันต์ ศรีสว่าง'},{student_id:'6502004',full_name:'นางสาว ธัญญา พงษ์พิทักษ์'}], t1:'Smart Farm / Precision Agriculture', d1:'ระบบรดน้ำอัตโนมัติด้วย IoT', t2:'Embedded Systems', d2:'ESP32 + MQTT + Dashboard', t3:'Data Analytics', d3:'' },
+    { members: [{student_id:'6503001',full_name:'นาย ชยธร วงษ์สวัสดิ์'},{student_id:'6503002',full_name:'นางสาว ณิชาภัทร บุญมาก'}], t1:'Web Application ระบบจัดการคลังสินค้า', d1:'React + FastAPI + PostgreSQL', t2:'Mobile App (Flutter)', d2:'แอปตรวจสอบสต็อคสินค้า', t3:'Blockchain / Supply Chain', d3:'' },
+  ];
+  let sampleF1Idx = 0;
+  function fillSampleF1() {
+    const s = SAMPLES_F1[sampleF1Idx++ % SAMPLES_F1.length];
+    // members
+    const list = document.getElementById('memberList');
+    list.innerHTML = '';
+    s.members.forEach(m => {
+      const row = document.createElement('div');
+      row.className = 'member-row';
+      row.innerHTML = `<input type="text" value="${m.student_id}" class="sid-input" /><input type="text" value="${m.full_name}" class="sname-input" /><button class="rm-btn" onclick="removeMember(this)">✕</button>`;
+      list.appendChild(row);
+    });
+    document.getElementById('t1').value = s.t1;
+    document.getElementById('d1').value = s.d1;
+    document.getElementById('t2').value = s.t2;
+    document.getElementById('d2').value = s.d2;
+    document.getElementById('t3').value = s.t3;
+    document.getElementById('d3').value = s.d3;
+  }
+
+  const SAMPLES_F2 = [
+    { name:'ผศ.ดร. สมชาย วงษ์ประเสริฐ', ex:'AI / Machine Learning / Computer Vision', q:3 },
+    { name:'รศ.ดร. วิภา เจริญลาภ', ex:'IoT / Embedded Systems / Smart Home', q:3 },
+    { name:'อ.ดร. ณัฐพล รัตนโชติ', ex:'Web Development / Cloud / DevOps', q:4 },
+    { name:'ผศ. ชลธิชา สุขสบาย', ex:'Data Science / Bioinformatics / Healthcare AI', q:2 },
+  ];
+  let sampleF2Idx = 0;
+  function fillSampleF2() {
+    const s = SAMPLES_F2[sampleF2Idx++ % SAMPLES_F2.length];
+    document.getElementById('profName').value = s.name;
+    document.getElementById('profExpertise').value = s.ex;
+    document.getElementById('profQuota').value = s.q;
+  }
+</script>
+</body>
+</html>

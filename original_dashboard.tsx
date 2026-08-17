@@ -3,37 +3,16 @@ import { useNavigate } from 'react-router-dom'
 import {
   Card, Row, Col, Statistic, Alert, Button, Typography,
   Tag, Space, Flex, Spin, Empty, Tooltip, Divider,
-  Progress, Modal, InputNumber, Form, Table, Badge,
 } from 'antd'
 import {
   CheckCircleOutlined, CloseCircleOutlined, LoadingOutlined,
   UploadOutlined, ArrowRightOutlined, ExclamationCircleOutlined,
   WarningOutlined, HistoryOutlined, ThunderboltOutlined,
-  UserOutlined, TeamOutlined, FormOutlined, KeyOutlined, SyncOutlined,
+  UserOutlined, TeamOutlined,
 } from '@ant-design/icons'
-import { getDashboard, getRecentRuns, getWebhookStatus, activateWebhookSession, generateAnonymousCodes } from '../api/client'
+import { getDashboard, getRecentRuns } from '../api/client'
 
 const { Title, Text } = Typography
-
-interface WebhookStatus {
-  session_id: number | null
-  is_active: boolean
-  source: string
-  codes_generated: boolean
-  expected_student_count: number | null
-  received_student_count: number
-  received_group_count: number
-  form1_ready: boolean
-  expected_prof_count: number | null
-  received_prof_count: number
-  form2_ready: boolean
-  ranked_group_count: number
-  scored_prof_count: number
-  pct_groups_ranked: number
-  pct_profs_scored: number
-  group_codes: { group_id: number; anonymous_code: string; member_count: number }[]
-  prof_codes: { prof_id: number; anonymous_code: string; full_name: string }[]
-}
 
 interface DashboardData {
   latest_session: {
@@ -101,11 +80,6 @@ export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null)
   const [recentRuns, setRecentRuns] = useState<RecentRun[]>([])
   const [loading, setLoading] = useState(true)
-  const [webhookStatus, setWebhookStatus] = useState<WebhookStatus | null>(null)
-  const [activateModalOpen, setActivateModalOpen] = useState(false)
-  const [activating, setActivating] = useState(false)
-  const [generating, setGenerating] = useState(false)
-  const [form] = Form.useForm()
 
   useEffect(() => {
     const fetch = () => {
@@ -116,34 +90,11 @@ export default function Dashboard() {
       getRecentRuns()
         .then(r => setRecentRuns(r.data))
         .catch(() => {})
-      getWebhookStatus()
-        .then(r => setWebhookStatus(r.data))
-        .catch(() => {})
     }
     fetch()
     const t = setInterval(fetch, 6000)
     return () => clearInterval(t)
   }, [])
-
-  const handleActivate = async (values: { expected_student_count: number; expected_prof_count: number }) => {
-    setActivating(true)
-    try {
-      await activateWebhookSession(values.expected_student_count, values.expected_prof_count)
-      setActivateModalOpen(false)
-      form.resetFields()
-      getWebhookStatus().then(r => setWebhookStatus(r.data)).catch(() => {})
-    } catch { /* ignore */ }
-    setActivating(false)
-  }
-
-  const handleGenerateCodes = async () => {
-    setGenerating(true)
-    try {
-      await generateAnonymousCodes()
-      getWebhookStatus().then(r => setWebhookStatus(r.data)).catch(() => {})
-    } catch { /* ignore */ }
-    setGenerating(false)
-  }
 
   const run = data?.latest_run
 
@@ -264,9 +215,7 @@ export default function Dashboard() {
   }
 
   // ── Empty state ───────────────────────────────────────────────────────────
-  // ข้าม empty state ถ้ากำลังรับฟอร์มอยู่ (webhookStatus.is_active)
-  // เพื่อให้ส่วน MS Forms Status ยังคงแสดงอยู่แม้จะยังไม่มีกลุ่ม
-  if ((!data || data.num_groups === 0) && !webhookStatus?.is_active) {
+  if (!data || data.num_groups === 0) {
     return (
       <div style={{ padding: 32 }}>
         <Flex justify="space-between" align="flex-start" style={{ marginBottom: 24, flexWrap: 'wrap', gap: 16 }}>
@@ -281,46 +230,21 @@ export default function Dashboard() {
             description={
               <Flex vertical gap={4}>
                 <Text>ยังไม่มีข้อมูลในระบบ</Text>
-                <Text type="secondary" style={{ fontSize: 13 }}>เริ่มต้นด้วยการอัปโหลดไฟล์ Excel หรือเปิดรอบรับฟอร์ม MS Forms</Text>
+                <Text type="secondary" style={{ fontSize: 13 }}>เริ่มต้นด้วยการอัปโหลดไฟล์ Excel</Text>
               </Flex>
             }
           >
-            <Space>
-              <Button type="primary" icon={<UploadOutlined />} onClick={() => navigate('/data')}>
-                อัปโหลดข้อมูล
-              </Button>
-              <Button icon={<FormOutlined />} onClick={() => setActivateModalOpen(true)}>
-                เปิดรอบรับฟอร์มใหม่
-              </Button>
-            </Space>
+            <Button type="primary" icon={<UploadOutlined />} onClick={() => navigate('/data')}>
+              อัปโหลดข้อมูล
+            </Button>
           </Empty>
         </Card>
-
-        {/* Modal เปิดรอบรับฟอร์ม (ต้องมีแม้ใน empty state) */}
-        <Modal
-          title="เปิดรอบรับฟอร์มใหม่"
-          open={activateModalOpen}
-          onCancel={() => setActivateModalOpen(false)}
-          footer={null}
-        >
-          <Form form={form} layout="vertical" onFinish={handleActivate}>
-            <Form.Item name="expected_student_count" label="จำนวนนักศึกษาทั้งหมดที่คาดว่าจะตอบฟอร์ม" rules={[{ required: true }]}>
-              <InputNumber min={1} style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="expected_prof_count" label="จำนวนอาจารย์ทั้งหมดที่คาดว่าจะตอบฟอร์ม" rules={[{ required: true }]}>
-              <InputNumber min={1} style={{ width: '100%' }} />
-            </Form.Item>
-            <Button type="primary" htmlType="submit" loading={activating} block>
-              ยืนยันเปิดรอบรับฟอร์ม
-            </Button>
-          </Form>
-        </Modal>
       </div>
     )
   }
 
   // ── Matched card colors ───────────────────────────────────────────────────
-  const matchedTotal = data?.num_groups ?? 0
+  const matchedTotal = data.num_groups
   const matchedNum = run?.status === 'success' ? run.num_matched : null
   const matchRatio = matchedNum !== null && matchedTotal > 0 ? matchedNum / matchedTotal : null
   const matchCardStyle: React.CSSProperties =
@@ -665,186 +589,6 @@ export default function Dashboard() {
           </Flex>
         </Col>
       </Row>
-
-      {/* ── MS Forms Status Section ─────────────────────────────────── */}
-      <Card
-        style={{ borderRadius: 10, marginTop: 16 }}
-        title={
-          <Flex align="center" gap={8}>
-            <FormOutlined style={{ color: '#1677ff' }} />
-            <span>สถานะการรับข้อมูลจาก MS Forms</span>
-            {webhookStatus?.is_active
-              ? <Badge status="processing" text={<Text style={{ fontSize: 12 }} type="secondary">กำลังรับอยู่</Text>} />
-              : <Badge status="default" text={<Text style={{ fontSize: 12 }} type="secondary">ปิดอยู่</Text>} />}
-          </Flex>
-        }
-        extra={
-          <Button
-            size="small"
-            type="primary"
-            icon={<SyncOutlined />}
-            onClick={() => setActivateModalOpen(true)}
-          >
-            เปิดรอบรับฟอร์มใหม่
-          </Button>
-        }
-      >
-        {!webhookStatus?.is_active ? (
-          <Empty
-            description={
-              <Text type="secondary" style={{ fontSize: 13 }}>
-                ยังไม่มีรอบรับฟอร์มที่เปิดอยู่ — กดปุ่ม "เปิดรอบรับฟอร์มใหม่" เพื่อเริ่มต้น
-              </Text>
-            }
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-          />
-        ) : (
-          <Row gutter={[16, 16]}>
-            <Col xs={24} sm={12}>
-              <Card size="small" style={{ borderRadius: 8 }}>
-                <Flex justify="space-between" align="flex-start">
-                  <div>
-                    <Text strong style={{ fontSize: 13 }}>📋 ฟอร์ม 1: ข้อมูลกลุ่มนักศึกษา</Text><br />
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {webhookStatus.received_group_count} กลุ่ม / {webhookStatus.received_student_count} คน
-                      {webhookStatus.expected_student_count
-                        ? ` (เป้าหมาย ${webhookStatus.expected_student_count} คน)`
-                        : ''}
-                    </Text>
-                  </div>
-                  {webhookStatus.form1_ready
-                    ? <Tag color="success">ครบแล้ว</Tag>
-                    : <Tag color="processing">รอข้อมูล</Tag>}
-                </Flex>
-                {webhookStatus.expected_student_count && (
-                  <Progress
-                    percent={Math.min(100, Math.round(
-                      webhookStatus.received_student_count / webhookStatus.expected_student_count * 100
-                    ))}
-                    size="small"
-                    style={{ marginTop: 8 }}
-                    status={webhookStatus.form1_ready ? 'success' : 'active'}
-                  />
-                )}
-              </Card>
-            </Col>
-            <Col xs={24} sm={12}>
-              <Card size="small" style={{ borderRadius: 8 }}>
-                <Flex justify="space-between" align="flex-start">
-                  <div>
-                    <Text strong style={{ fontSize: 13 }}>📋 ฟอร์ม 2: ข้อมูลอาจารย์</Text><br />
-                    <Text type="secondary" style={{ fontSize: 12 }}>
-                      {webhookStatus.received_prof_count} ท่าน
-                      {webhookStatus.expected_prof_count
-                        ? ` / เป้าหมาย ${webhookStatus.expected_prof_count} ท่าน`
-                        : ''}
-                    </Text>
-                  </div>
-                  {webhookStatus.form2_ready
-                    ? <Tag color="success">ครบแล้ว</Tag>
-                    : <Tag color="processing">รอข้อมูล</Tag>}
-                </Flex>
-                {webhookStatus.expected_prof_count && (
-                  <Progress
-                    percent={Math.min(100, Math.round(
-                      webhookStatus.received_prof_count / webhookStatus.expected_prof_count * 100
-                    ))}
-                    size="small"
-                    style={{ marginTop: 8 }}
-                    status={webhookStatus.form2_ready ? 'success' : 'active'}
-                  />
-                )}
-              </Card>
-            </Col>
-            {!webhookStatus.codes_generated && (
-              <Col xs={24}>
-                <Alert
-                  type={webhookStatus.form1_ready && webhookStatus.form2_ready ? 'success' : 'info'}
-                  showIcon
-                  message={
-                    <Flex align="center" justify="space-between" gap={12} wrap="wrap">
-                      <span style={{ fontSize: 13 }}>
-                        {webhookStatus.form1_ready && webhookStatus.form2_ready
-                          ? '✅ ข้อมูลครบแล้ว — พร้อมสร้าง Anonymous Code ได้เลย'
-                          : '⏳ รอข้อมูลจากฟอร์ม 1 และ 2 ให้ครบก่อน แล้วค่อยสร้าง Anonymous Code'}
-                      </span>
-                      <Button
-                        type="primary"
-                        icon={<KeyOutlined />}
-                        size="small"
-                        disabled={!webhookStatus.form1_ready || !webhookStatus.form2_ready}
-                        loading={generating}
-                        onClick={handleGenerateCodes}
-                      >
-                        สร้าง Anonymous Code
-                      </Button>
-                    </Flex>
-                  }
-                  style={{ borderRadius: 8 }}
-                />
-              </Col>
-            )}
-            {webhookStatus.codes_generated && (
-              <>
-                <Col xs={24} sm={12}>
-                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
-                    <KeyOutlined /> Anonymous Code — กลุ่มนักศึกษา
-                  </Text>
-                  <Table
-                    dataSource={webhookStatus.group_codes}
-                    rowKey="group_id"
-                    size="small"
-                    pagination={false}
-                    style={{ borderRadius: 8 }}
-                    columns={[
-                      { title: 'Code', dataIndex: 'anonymous_code', key: 'code', width: 80,
-                        render: (v: string) => <Tag color="blue">{v}</Tag> },
-                      { title: 'สมาชิก', dataIndex: 'member_count', key: 'mc', width: 70,
-                        render: (v: number) => `${v} คน` },
-                    ]}
-                  />
-                </Col>
-                <Col xs={24} sm={12}>
-                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
-                    <KeyOutlined /> Anonymous Code — อาจารย์
-                  </Text>
-                  <Table
-                    dataSource={webhookStatus.prof_codes}
-                    rowKey="prof_id"
-                    size="small"
-                    pagination={false}
-                    style={{ borderRadius: 8 }}
-                    columns={[
-                      { title: 'Code', dataIndex: 'anonymous_code', key: 'code', width: 80,
-                        render: (v: string) => <Tag color="purple">{v}</Tag> },
-                      { title: 'ชื่ออาจารย์', dataIndex: 'full_name', key: 'name' },
-                    ]}
-                  />
-                </Col>
-              </>
-            )}
-          </Row>
-        )}
-      </Card>
-      
-      <Modal
-        title="เปิดรอบรับฟอร์มใหม่"
-        open={activateModalOpen}
-        onCancel={() => setActivateModalOpen(false)}
-        footer={null}
-      >
-        <Form form={form} layout="vertical" onFinish={handleActivate}>
-          <Form.Item name="expected_student_count" label="จำนวนนักศึกษาทั้งหมดที่คาดว่าจะตอบฟอร์ม" rules={[{ required: true }]}>
-            <InputNumber min={1} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="expected_prof_count" label="จำนวนอาจารย์ทั้งหมดที่คาดว่าจะตอบฟอร์ม" rules={[{ required: true }]}>
-            <InputNumber min={1} style={{ width: '100%' }} />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" loading={activating} block>
-            ยืนยันเปิดรอบรับฟอร์ม
-          </Button>
-        </Form>
-      </Modal>
     </div>
   )
 }

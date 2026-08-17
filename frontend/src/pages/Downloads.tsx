@@ -24,7 +24,7 @@ export default function Downloads() {
   const triggerDownload = async (url: string, filename: string) => {
     try {
       const res = await api.get(url, { responseType: 'blob' })
-      const blob = new Blob([res.data], { type: res.headers['content-type'] || 'application/octet-stream' })
+      const blob = new Blob([res.data], { type: (res.headers['content-type'] as string) || 'application/octet-stream' })
       const blobUrl = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = blobUrl
