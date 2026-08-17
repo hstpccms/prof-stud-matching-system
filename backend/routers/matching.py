@@ -17,11 +17,11 @@ from services.validation import validate_session
 router = APIRouter(prefix="/api/matching", tags=["matching"])
 
 
-def _run_in_background(run_id: int, session_id: int, seed: int):
+def _run_in_background(run_id: int, session_id: int, seed: int, program: str):
     """Run matching job in a background thread with its own DB session."""
     db = SessionLocal()
     try:
-        run_matching(run_id, session_id, seed, db)
+        run_matching(run_id, session_id, seed, program, db)
     finally:
         db.close()
 
@@ -37,7 +37,7 @@ def start_run(
         raise HTTPException(404, "ไม่พบ Session")
 
     # Must pass validation
-    val = validate_session(body.session_id, db)
+    val = validate_session(body.session_id, db, body.program)
     if not val["passed"]:
         errors = "; ".join(e["message"] for e in val["errors"][:3])
         raise HTTPException(422, f"ข้อมูลยังไม่ผ่านการตรวจสอบ: {errors}")
@@ -45,6 +45,7 @@ def start_run(
     # Create run record
     run = models.MatchingRun(
         session_id=body.session_id,
+        program=body.program,
         seed=body.seed,
         status="running",
     )
@@ -55,7 +56,7 @@ def start_run(
     # Launch background thread
     thread = threading.Thread(
         target=_run_in_background,
-        args=(run.id, body.session_id, body.seed),
+        args=(run.id, body.session_id, body.seed, body.program),
         daemon=True,
     )
     thread.start()
@@ -85,7 +86,7 @@ def recent_runs(
     )
     result = []
     for run in runs:
-        num_groups = db.query(models.Group).filter_by(session_id=run.session_id).count()
+        num_groups = db.query(models.Group).filter_by(session_id=run.session_id, program=run.program).count()
         result.append({
             "id": run.id,
             "run_at": run.run_at,
@@ -95,6 +96,7 @@ def recent_runs(
             "num_matched": run.num_matched,
             "num_unmatched": run.num_unmatched,
             "num_groups": num_groups,
+            "program": run.program,
         })
     return result
 

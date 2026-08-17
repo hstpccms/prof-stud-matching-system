@@ -32,6 +32,13 @@ class ImportSessionOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class StudentMemberOut(BaseModel):
+    student_id: str
+    full_name: Optional[str]
+
+    model_config = {"from_attributes": True}
+
+
 # ── Group ──────────────────────────────────────────────────────────────────────
 class GroupOut(BaseModel):
     id: int
@@ -40,6 +47,7 @@ class GroupOut(BaseModel):
     representative: Optional[str]
     member_count: Optional[int]
     topic_interest: Optional[str]
+    members: List[StudentMemberOut] = []
 
     model_config = {"from_attributes": True}
 
@@ -93,6 +101,7 @@ class ValidationResult(BaseModel):
 class RunMatchingRequest(BaseModel):
     session_id: int
     seed: int = 2026
+    program: str
 
 
 class MatchingRunOut(BaseModel):
@@ -157,8 +166,7 @@ class DashboardStats(BaseModel):
 
 class ActivateSessionRequest(BaseModel):
     """Request body for POST /api/webhook/activate"""
-    expected_student_count: int  # จำนวนนักศึกษา unique ทั้งหมดที่คาดว่าจะส่งฟอร์ม
-    expected_prof_count: int     # จำนวนอาจารย์ทั้งหมดที่คาดว่าจะส่งฟอร์ม
+    expected_counts: dict  # {"รังสีเทคนิค": {"students": 30, "profs": 10}, ...}
 
 
 # ── Form 1: ข้อมูลกลุ่มนักศึกษา ────────────────────────────────────────────────────────────
@@ -169,6 +177,7 @@ class StudentMemberIn(BaseModel):
 
 class FormGroupInfoIn(BaseModel):
     """Request body for POST /api/webhook/group-info (Form 1)"""
+    program: str
     members: List[StudentMemberIn]      # รหัส + ชื่อ-นามสกุล สมาชิกทุกคน
     topic1_title: str
     topic1_detail: Optional[str] = None
@@ -181,6 +190,7 @@ class FormGroupInfoIn(BaseModel):
 # ── Form 2: ข้อมูลอาจารย์ ───────────────────────────────────────────────────────────────
 class FormProfInfoIn(BaseModel):
     """Request body for POST /api/webhook/prof-info (Form 2)"""
+    program: str
     full_name: str
     expertise: str
     quota: int
@@ -211,11 +221,13 @@ class FormProfScoreIn(BaseModel):
     scores: List[GroupScoreEntryIn]
 
 
-# ── Webhook Status Output ───────────────────────────────────────────────────────────────────
+
 class GroupAnonymousCodeOut(BaseModel):
     group_id: int
     anonymous_code: str
     member_count: int
+    representative: Optional[str] = None
+    members: List[StudentMemberOut] = []
 
     model_config = {"from_attributes": True}
 
@@ -224,6 +236,16 @@ class ProfAnonymousCodeOut(BaseModel):
     prof_id: int
     anonymous_code: str
     full_name: str
+
+    model_config = {"from_attributes": True}
+
+
+class SubmittedGroupOut(BaseModel):
+    group_id: int
+    anonymous_code: Optional[str]
+    representative: Optional[str] = None
+    member_count: int = 0
+    members: List[StudentMemberOut] = []
 
     model_config = {"from_attributes": True}
 
@@ -251,3 +273,4 @@ class WebhookStatusOut(BaseModel):
     # ── Code tables (เพื่อแสดงตาราง mapping หลัง generate)
     group_codes: List[GroupAnonymousCodeOut]
     prof_codes: List[ProfAnonymousCodeOut]
+    submitted_groups: List[SubmittedGroupOut] = []

@@ -30,7 +30,7 @@ export const login = (username: string, password: string) =>
 export const getMe = () => api.get('/auth/me')
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
-export const getDashboard = () => api.get('/data/sessions/latest/dashboard')
+export const getDashboard = (program?: string) => api.get('/data/sessions/latest/dashboard', { params: program ? { program } : undefined })
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 export const uploadFile = (file: File) => {
@@ -42,15 +42,15 @@ export const uploadFile = (file: File) => {
 }
 
 export const listSessions = () => api.get('/data/sessions')
-export const getGroups = (sid: number) => api.get(`/data/sessions/${sid}/groups`)
-export const getProfessors = (sid: number) => api.get(`/data/sessions/${sid}/professors`)
-export const getRankings = (sid: number) => api.get(`/data/sessions/${sid}/rankings`)
-export const getScores = (sid: number) => api.get(`/data/sessions/${sid}/scores`)
-export const validateSession = (sid: number) => api.post(`/data/sessions/${sid}/validate`)
+export const getGroups = (sid: number, program?: string) => api.get(`/data/sessions/${sid}/groups`, { params: program ? { program } : undefined })
+export const getProfessors = (sid: number, program?: string) => api.get(`/data/sessions/${sid}/professors`, { params: program ? { program } : undefined })
+export const getRankings = (sid: number, program?: string) => api.get(`/data/sessions/${sid}/rankings`, { params: program ? { program } : undefined })
+export const getScores = (sid: number, program?: string) => api.get(`/data/sessions/${sid}/scores`, { params: program ? { program } : undefined })
+export const validateSession = (sid: number, program?: string) => api.post(`/data/sessions/${sid}/validate`, null, { params: program ? { program } : undefined })
 
 // ── Matching ──────────────────────────────────────────────────────────────────
-export const runMatching = (session_id: number, seed: number) =>
-  api.post('/matching/run', { session_id, seed })
+export const runMatching = (session_id: number, seed: number, program: string) =>
+  api.post('/matching/run', { session_id, seed, program })
 
 export const listRuns = () => api.get('/matching/runs')
 export const getRecentRuns = () => api.get('/matching/runs/recent')
@@ -70,9 +70,9 @@ export const downloadResult = (runId: number) =>
   `/api/download/result/${runId}`
 
 // ── Webhook / MS Forms ───────────────────────────────────────────────────────
-export const getWebhookStatus = () => api.get('/webhook/status')
-export const activateWebhookSession = (expected_student_count: number, expected_prof_count: number) =>
-  api.post('/webhook/activate', { expected_student_count, expected_prof_count })
+export const getWebhookStatus = (program?: string) => api.get('/webhook/status', { params: program ? { program } : undefined })
+export const activateWebhookSession = (expected_counts: any) =>
+  api.post('/webhook/activate', { expected_counts })
 export const generateAnonymousCodes = () => api.post('/webhook/generate-codes')
 
 export default api

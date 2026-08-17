@@ -9,6 +9,8 @@ import Results from './pages/Results'
 import Downloads from './pages/Downloads'
 import History from './pages/History'
 
+import { ProgramProvider } from './ProgramContext'
+
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('token')
   if (!token) return <Navigate to="/login" replace />
@@ -18,7 +20,8 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 export default function App() {
   return (
     <BrowserRouter>
-      <AntApp>
+      <ProgramProvider>
+        <AntApp>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
@@ -29,7 +32,8 @@ export default function App() {
           <Route path="/history" element={<PrivateRoute><History /></PrivateRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </AntApp>
+        </AntApp>
+      </ProgramProvider>
     </BrowserRouter>
   )
 }

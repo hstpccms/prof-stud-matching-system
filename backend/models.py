@@ -27,8 +27,7 @@ class ImportSession(Base):
     # ── Webhook / Forms fields ────────────────────────────────────────────────
     is_active              = Column(Boolean, default=False)   # True = กำลังรับข้อมูลจากฟอร์มอยู่
     source                 = Column(String, default="excel")  # "excel" | "forms"
-    expected_student_count = Column(Integer, nullable=True)   # จำนวน นศ. unique ที่คาดว่าจะส่งฟอร์ม
-    expected_prof_count    = Column(Integer, nullable=True)   # จำนวนอาจารย์ที่คาดว่าจะส่งฟอร์ม
+    expected_counts        = Column(Text, default="{}")       # JSON string {"program": {"students": X, "profs": Y}}
     codes_generated        = Column(Boolean, default=False)   # สร้าง anonymous_code แล้วหรือยัง
 
     groups = relationship("Group", back_populates="session", cascade="all, delete-orphan")
@@ -45,6 +44,7 @@ class Group(Base):
     session_id = Column(Integer, ForeignKey("import_sessions.id"))
     group_id = Column(String)
     anonymous_code = Column(String)
+    program = Column(String)
     representative = Column(String)
     member_count = Column(Integer)
     topic_interest = Column(Text)  # JSON string
@@ -67,6 +67,7 @@ class Professor(Base):
     session_id = Column(Integer, ForeignKey("import_sessions.id"))
     prof_id = Column(String)
     anonymous_code = Column(String)
+    program = Column(String)
     full_name = Column(String)
     expertise = Column(String)
     quota = Column(Integer)
@@ -78,6 +79,7 @@ class StudentRanking(Base):
     __tablename__ = "student_rankings"
     id = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(Integer, ForeignKey("import_sessions.id"))
+    program = Column(String)
     group_code = Column(String)
     prof_code = Column(String)
     rank = Column(Integer)
@@ -89,6 +91,7 @@ class ProfessorScore(Base):
     __tablename__ = "professor_scores"
     id = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(Integer, ForeignKey("import_sessions.id"))
+    program = Column(String)
     prof_code = Column(String)
     group_code = Column(String)
     score_a = Column(Integer)
@@ -103,6 +106,7 @@ class MatchingRun(Base):
     __tablename__ = "matching_runs"
     id = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(Integer, ForeignKey("import_sessions.id"))
+    program = Column(String)
     run_at = Column(DateTime, default=datetime.utcnow)
     seed = Column(Integer)
     mode = Column(String, default="both")  # student|professor|both
@@ -144,6 +148,7 @@ class StudentMember(Base):
     __tablename__ = "student_members"
     id         = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(Integer, ForeignKey("import_sessions.id"), nullable=False)
+    program    = Column(String)
     group_id   = Column(Integer, ForeignKey("groups.id"), nullable=True)  # กำหนดหลัง generate codes
     student_id = Column(String, nullable=False)  # รหัสนักศึกษา
     full_name  = Column(String)

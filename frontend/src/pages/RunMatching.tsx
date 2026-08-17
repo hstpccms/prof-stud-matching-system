@@ -8,6 +8,7 @@ import {
   ReloadOutlined, ClockCircleOutlined,
 } from '@ant-design/icons'
 import { listSessions, runMatching, getRun, validateSession } from '../api/client'
+import { useProgram } from '../ProgramContext'
 
 const { Title, Text } = Typography
 
@@ -20,6 +21,7 @@ export default function RunMatching() {
   const [currentRun, setCurrentRun] = useState<any>(null)
   const [validation, setValidation] = useState<any>(null)
   const [checkingVal, setCheckingVal] = useState(false)
+  const { program } = useProgram()
 
   useEffect(() => {
     listSessions().then(res => {
@@ -31,11 +33,11 @@ export default function RunMatching() {
   useEffect(() => {
     if (!selectedSid) return
     setCheckingVal(true); setValidation(null)
-    validateSession(selectedSid)
+    validateSession(selectedSid, program)
       .then(r => setValidation(r.data))
       .catch(() => {})
       .finally(() => setCheckingVal(false))
-  }, [selectedSid])
+  }, [selectedSid, program])
 
   const pollRun = (runId: number) => {
     const t = setInterval(async () => {
@@ -57,7 +59,7 @@ export default function RunMatching() {
     if (!selectedSid || !validation?.passed) return
     setRunning(true); setCurrentRun(null)
     try {
-      const res = await runMatching(selectedSid, seed)
+      const res = await runMatching(selectedSid, seed, program)
       setCurrentRun(res.data)
       message.info('เริ่มรัน Matching Algorithm...')
       pollRun(res.data.id)

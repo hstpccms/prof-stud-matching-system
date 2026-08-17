@@ -12,6 +12,7 @@ import {
   uploadFile, listSessions, getGroups, getProfessors,
   getRankings, getScores, validateSession,
 } from '../api/client'
+import { useProgram } from '../ProgramContext'
 
 const { Title, Text } = Typography
 const { Dragger } = Upload
@@ -19,6 +20,7 @@ const { Dragger } = Upload
 type TabType = 'groups' | 'professors' | 'rankings' | 'scores'
 
 export default function DataManagement() {
+  const { program } = useProgram()
   const { message } = AntApp.useApp()
   const [sessions, setSessions] = useState<any[]>([])
   const [selectedSid, setSelectedSid] = useState<number | null>(null)
@@ -40,10 +42,10 @@ export default function DataManagement() {
     setLoadingTable(true); setTableData([])
     try {
       const fetchers: Record<TabType, () => Promise<any>> = {
-        groups: () => getGroups(sid),
-        professors: () => getProfessors(sid),
-        rankings: () => getRankings(sid),
-        scores: () => getScores(sid),
+        groups: () => getGroups(sid, program),
+        professors: () => getProfessors(sid, program),
+        rankings: () => getRankings(sid, program),
+        scores: () => getScores(sid, program),
       }
       const res = await fetchers[t]()
       setTableData(res.data)
@@ -53,7 +55,7 @@ export default function DataManagement() {
   useEffect(() => { fetchSessions() }, [])
   useEffect(() => {
     if (selectedSid) { setValidationResult(null); fetchTable(selectedSid, tab) }
-  }, [selectedSid, tab])
+  }, [selectedSid, tab, program])
 
   const handleFile = async (file: File) => {
     if (!file.name.endsWith('.xlsx')) { message.error('กรุณาเลือกไฟล์ .xlsx'); return false }
@@ -85,13 +87,54 @@ export default function DataManagement() {
 
   /* ── Table columns ── */
   const groupColumns: ColumnsType<any> = [
-    { title: 'GroupID', dataIndex: 'group_id', key: 'group_id', render: v => <Text strong>{v}</Text> },
-    { title: 'รหัส', dataIndex: 'anonymous_code', key: 'anonymous_code', render: v => <Tag>{v}</Tag> },
-    { title: 'ตัวแทน', dataIndex: 'representative', key: 'representative' },
-    { title: 'สมาชิก', dataIndex: 'member_count', key: 'member_count', align: 'center' },
+    { title: 'GroupID', dataIndex: 'group_id', key: 'group_id', width: 80, render: v => <Text strong>{v}</Text> },
+    { title: 'รหัส', dataIndex: 'anonymous_code', key: 'anonymous_code', width: 80, render: v => <Tag>{v}</Tag> },
+    { title: 'ตัวแทน', dataIndex: 'representative', key: 'representative', width: 120 },
+    { title: 'สมาชิก', dataIndex: 'member_count', key: 'member_count', width: 70, align: 'center' },
+    { title: 'รายชื่อสมาชิก (รหัส - ชื่อ)', dataIndex: 'members', key: 'members', width: 250,
+      render: (members: any[]) => {
+        if (!members || members.length === 0) return <Text type="secondary">—</Text>
+        return (
+          <Flex vertical>
+            {members.map((m, idx) => (
+              <div
+                key={m.student_id}
+                style={{
+                  padding: '4px 0',
+                  borderBottom: idx === members.length - 1 ? 'none' : '1px solid #f0f0f0',
+                  display: 'flex',
+                  gap: 8
+                }}
+              >
+                <Text strong style={{ width: 90, fontSize: 12 }}>{m.student_id}</Text>
+                <Text style={{ fontSize: 12 }}>{m.full_name || '-'}</Text>
+              </div>
+            ))}
+          </Flex>
+        )
+      }
+    },
     {
       title: 'หัวข้อสนใจ', dataIndex: 'topic_interest', key: 'topic_interest',
-      render: v => v ? JSON.parse(v).join(', ') : '—',
+      render: v => {
+        if (!v) return '—'
+        try {
+          const topics = JSON.parse(v)
+          return (
+            <Flex vertical gap={6}>
+              {topics.map((t: any, idx: number) => {
+                if (typeof t === 'string') return <div key={idx} style={{ fontSize: 13 }}>• {t}</div>
+                return (
+                  <div key={idx} style={{ paddingBottom: idx === topics.length - 1 ? 0 : 4 }}>
+                    <Text strong style={{ fontSize: 13 }}>• {t.title}</Text>
+                    {t.detail && <div style={{ fontSize: 12, color: '#8c8c8c', paddingLeft: 12, marginTop: 2 }}>{t.detail}</div>}
+                  </div>
+                )
+              })}
+            </Flex>
+          )
+        } catch { return String(v) }
+      },
     },
   ]
 

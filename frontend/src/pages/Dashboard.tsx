@@ -12,6 +12,8 @@ import {
   UserOutlined, TeamOutlined, FormOutlined, KeyOutlined, SyncOutlined,
 } from '@ant-design/icons'
 import { getDashboard, getRecentRuns, getWebhookStatus, activateWebhookSession, generateAnonymousCodes } from '../api/client'
+import { useProgram } from '../ProgramContext'
+import { PROGRAMS } from '../constants'
 
 const { Title, Text } = Typography
 
@@ -31,8 +33,9 @@ interface WebhookStatus {
   scored_prof_count: number
   pct_groups_ranked: number
   pct_profs_scored: number
-  group_codes: { group_id: number; anonymous_code: string; member_count: number }[]
+  group_codes: { group_id: number; anonymous_code: string; member_count: number; members: { student_id: string; full_name: string }[] }[]
   prof_codes: { prof_id: number; anonymous_code: string; full_name: string }[]
+  submitted_groups: { group_id: number; anonymous_code: string | null; members: { student_id: string; full_name: string }[] }[]
 }
 
 interface DashboardData {
@@ -106,32 +109,40 @@ export default function Dashboard() {
   const [activating, setActivating] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [form] = Form.useForm()
+  const { program } = useProgram()
 
   useEffect(() => {
     const fetch = () => {
-      getDashboard()
+      getDashboard(program)
         .then(r => setData(r.data))
         .catch(() => {})
         .finally(() => setLoading(false))
       getRecentRuns()
         .then(r => setRecentRuns(r.data))
         .catch(() => {})
-      getWebhookStatus()
+      getWebhookStatus(program)
         .then(r => setWebhookStatus(r.data))
         .catch(() => {})
     }
     fetch()
     const t = setInterval(fetch, 6000)
     return () => clearInterval(t)
-  }, [])
+  }, [program])
 
-  const handleActivate = async (values: { expected_student_count: number; expected_prof_count: number }) => {
+  const handleActivate = async (values: any) => {
     setActivating(true)
     try {
-      await activateWebhookSession(values.expected_student_count, values.expected_prof_count)
+      const expected_counts: any = {}
+      PROGRAMS.forEach(p => {
+        expected_counts[p] = {
+          students: values[`students_${p}`] || 0,
+          profs: values[`profs_${p}`] || 0,
+        }
+      })
+      await activateWebhookSession(expected_counts)
       setActivateModalOpen(false)
       form.resetFields()
-      getWebhookStatus().then(r => setWebhookStatus(r.data)).catch(() => {})
+      getWebhookStatus(program).then(r => setWebhookStatus(r.data)).catch(() => {})
     } catch { /* ignore */ }
     setActivating(false)
   }
@@ -140,7 +151,7 @@ export default function Dashboard() {
     setGenerating(true)
     try {
       await generateAnonymousCodes()
-      getWebhookStatus().then(r => setWebhookStatus(r.data)).catch(() => {})
+      getWebhookStatus(program).then(r => setWebhookStatus(r.data)).catch(() => {})
     } catch { /* ignore */ }
     setGenerating(false)
   }
@@ -318,6 +329,8 @@ export default function Dashboard() {
       </div>
     )
   }
+  
+  if (!data) return null;
 
   // ── Matched card colors ───────────────────────────────────────────────────
   const matchedTotal = data?.num_groups ?? 0
@@ -784,26 +797,51 @@ export default function Dashboard() {
                 />
               </Col>
             )}
+            <>
+              <Col xs={24}>
+                <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
+                  <KeyOutlined /> ข้อมูลกลุ่มนักศึกษา (ส่งฟอร์มแล้ว)
+                </Text>
+                <Table
+                  dataSource={webhookStatus.submitted_groups}
+                  rowKey="group_id"
+                  size="small"
+                  pagination={{ pageSize: 15 }}
+                  style={{ borderRadius: 8 }}
+                  rowClassName={() => 'group-row'}
+                  columns={[
+                    { title: 'กลุ่มที่', key: 'index', width: 60, render: (_, __, i) => i + 1 },
+                    { title: 'Code', dataIndex: 'anonymous_code', key: 'code', width: 80,
+                      render: (v: string) => v ? <Tag color="blue">{v}</Tag> : <Text type="secondary">รอสร้าง</Text> },
+                    { title: 'ตัวแทนกลุ่ม', dataIndex: 'representative', key: 'rep', width: 120,
+                      render: v => v || '-' },
+                    { title: 'จำนวน (คน)', dataIndex: 'member_count', key: 'mc', width: 90, align: 'center' },
+                    { title: 'รายชื่อสมาชิก (รหัส - ชื่อ)', dataIndex: 'members', key: 'members',
+                      render: (members: any[]) => (
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          {members?.map((m, idx) => (
+                            <div
+                              key={m.student_id}
+                              style={{
+                                padding: '4px 0',
+                                borderBottom: idx === members.length - 1 ? 'none' : '1px solid #f0f0f0',
+                                display: 'flex',
+                                gap: 8
+                              }}
+                            >
+                              <Text strong style={{ width: 100, fontSize: 12 }}>{m.student_id}</Text>
+                              <Text style={{ fontSize: 12 }}>{m.full_name || '-'}</Text>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    },
+                  ]}
+                />
+              </Col>
+            </>
             {webhookStatus.codes_generated && (
               <>
-                <Col xs={24} sm={12}>
-                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
-                    <KeyOutlined /> Anonymous Code — กลุ่มนักศึกษา
-                  </Text>
-                  <Table
-                    dataSource={webhookStatus.group_codes}
-                    rowKey="group_id"
-                    size="small"
-                    pagination={false}
-                    style={{ borderRadius: 8 }}
-                    columns={[
-                      { title: 'Code', dataIndex: 'anonymous_code', key: 'code', width: 80,
-                        render: (v: string) => <Tag color="blue">{v}</Tag> },
-                      { title: 'สมาชิก', dataIndex: 'member_count', key: 'mc', width: 70,
-                        render: (v: number) => `${v} คน` },
-                    ]}
-                  />
-                </Col>
                 <Col xs={24} sm={12}>
                   <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
                     <KeyOutlined /> Anonymous Code — อาจารย์
@@ -834,12 +872,23 @@ export default function Dashboard() {
         footer={null}
       >
         <Form form={form} layout="vertical" onFinish={handleActivate}>
-          <Form.Item name="expected_student_count" label="จำนวนนักศึกษาทั้งหมดที่คาดว่าจะตอบฟอร์ม" rules={[{ required: true }]}>
-            <InputNumber min={1} style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="expected_prof_count" label="จำนวนอาจารย์ทั้งหมดที่คาดว่าจะตอบฟอร์ม" rules={[{ required: true }]}>
-            <InputNumber min={1} style={{ width: '100%' }} />
-          </Form.Item>
+          {PROGRAMS.map(p => (
+            <div key={p} style={{ marginBottom: 16, padding: 12, border: '1px solid #f0f0f0', borderRadius: 8 }}>
+              <Text strong style={{ display: 'block', marginBottom: 8 }}>หลักสูตร: {p}</Text>
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item name={`students_${p}`} label="นศ. ที่คาดหวัง" rules={[{ required: true }]}>
+                    <InputNumber min={0} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item name={`profs_${p}`} label="อ. ที่คาดหวัง" rules={[{ required: true }]}>
+                    <InputNumber min={0} style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+              </Row>
+            </div>
+          ))}
           <Button type="primary" htmlType="submit" loading={activating} block>
             ยืนยันเปิดรอบรับฟอร์ม
           </Button>

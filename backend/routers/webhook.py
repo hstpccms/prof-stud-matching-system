@@ -7,8 +7,9 @@ import json
 import math
 import os
 import random
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from auth import get_current_admin
@@ -62,10 +63,11 @@ def _gen_code(prefix: str, index: int) -> str:
 
 @router.get("/status", response_model=schemas.WebhookStatusOut)
 def webhook_status(
+    program: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
-    """ดึงสถานะ Active Session สำหรับแสดงบน Dashboard"""
+    """ดึงสถานะ Active Session สำหรับแสดงบน Dashboard (กรองตามหลักสูตรได้)"""
     session = (
         db.query(models.ImportSession)
         .filter_by(is_active=True, source="forms")
@@ -96,21 +98,37 @@ def webhook_status(
 
     sid = session.id
 
-    # ── Form 1 stats ──────────────────────────────────────────────────────────
-    unique_student_count = (
-        db.query(models.StudentMember.student_id)
-        .filter_by(session_id=sid)
-        .distinct()
-        .count()
-    )
-    groups = db.query(models.Group).filter_by(session_id=sid).all()
-    professors = db.query(models.Professor).filter_by(session_id=sid).all()
+    # กรองข้อมูลตามโปรแกรม
+    query_student = db.query(models.StudentMember.student_id).filter_by(session_id=sid)
+    query_group = db.query(models.Group).filter_by(session_id=sid)
+    query_prof = db.query(models.Professor).filter_by(session_id=sid)
+    
+    if program:
+        query_student = query_student.filter_by(program=program)
+        query_group = query_group.filter_by(program=program)
+        query_prof = query_prof.filter_by(program=program)
+
+    unique_student_count = query_student.distinct().count()
+    groups = query_group.all()
+    professors = query_prof.all()
 
     received_group = len(groups)
     received_prof = len(professors)
 
-    exp_s = session.expected_student_count or 0
-    exp_p = session.expected_prof_count or 0
+    # อ่านค่า expected_counts ที่เก็บเป็น JSON
+    exp_counts_data = {}
+    try:
+        exp_counts_data = json.loads(session.expected_counts or "{}")
+    except:
+        pass
+
+    if program:
+        exp_s = exp_counts_data.get(program, {}).get("students", 0)
+        exp_p = exp_counts_data.get(program, {}).get("profs", 0)
+    else:
+        exp_s = sum(p.get("students", 0) for p in exp_counts_data.values())
+        exp_p = sum(p.get("profs", 0) for p in exp_counts_data.values())
+
     form1_ready = exp_s > 0 and unique_student_count >= exp_s
     form2_ready = exp_p > 0 and received_prof >= exp_p
 
@@ -118,8 +136,14 @@ def webhook_status(
     group_codes_list = [g.anonymous_code for g in groups if g.anonymous_code]
     prof_codes_list = [p.anonymous_code for p in professors if p.anonymous_code]
 
-    rankings = db.query(models.StudentRanking).filter_by(session_id=sid).all()
-    scores = db.query(models.ProfessorScore).filter_by(session_id=sid).all()
+    query_ranking = db.query(models.StudentRanking).filter_by(session_id=sid)
+    query_score = db.query(models.ProfessorScore).filter_by(session_id=sid)
+    if program:
+        query_ranking = query_ranking.filter_by(program=program)
+        query_score = query_score.filter_by(program=program)
+
+    rankings = query_ranking.all()
+    scores = query_score.all()
 
     rankings_by_group: dict = {}
     for r in rankings:
@@ -146,6 +170,8 @@ def webhook_status(
             group_id=g.id,
             anonymous_code=g.anonymous_code or "—",
             member_count=g.member_count or 0,
+            representative=g.representative,
+            members=[schemas.StudentMemberOut.model_validate(m) for m in g.members]
         )
         for g in groups if g.anonymous_code
     ]
@@ -158,16 +184,27 @@ def webhook_status(
         for p in professors if p.anonymous_code
     ]
 
+    submitted_groups = [
+        schemas.SubmittedGroupOut(
+            group_id=g.id,
+            anonymous_code=g.anonymous_code,
+            representative=g.representative,
+            member_count=g.member_count or 0,
+            members=[schemas.StudentMemberOut.model_validate(m) for m in g.members]
+        )
+        for g in groups
+    ]
+
     return schemas.WebhookStatusOut(
         session_id=sid,
         is_active=session.is_active,
         source=session.source,
         codes_generated=session.codes_generated or False,
-        expected_student_count=session.expected_student_count,
+        expected_student_count=exp_s,
         received_student_count=unique_student_count,
         received_group_count=received_group,
         form1_ready=form1_ready,
-        expected_prof_count=session.expected_prof_count,
+        expected_prof_count=exp_p,
         received_prof_count=received_prof,
         form2_ready=form2_ready,
         ranked_group_count=ranked_complete,
@@ -176,6 +213,7 @@ def webhook_status(
         pct_profs_scored=pct_scored,
         group_codes=group_codes_out,
         prof_codes=prof_codes_out,
+        submitted_groups=submitted_groups,
     )
 
 
@@ -202,8 +240,7 @@ def activate_session(
         source="forms",
         is_active=True,
         status="pending",
-        expected_student_count=body.expected_student_count,
-        expected_prof_count=body.expected_prof_count,
+        expected_counts=json.dumps(body.expected_counts, ensure_ascii=False),
         codes_generated=False,
     )
     db.add(session)
@@ -319,6 +356,7 @@ def receive_group_info(
             group.member_count = member_count
             group.representative = representative
             group.topic_interest = json.dumps(topics, ensure_ascii=False)
+            group.program = body.program
         # ลบ members เดิมแล้วเพิ่มใหม่
         db.query(models.StudentMember).filter_by(
             session_id=sid, group_id=existing_group_id
@@ -330,6 +368,7 @@ def receive_group_info(
             session_id=sid,
             group_id=None,
             anonymous_code=None,
+            program=body.program,
             representative=representative,
             member_count=member_count,
             topic_interest=json.dumps(topics, ensure_ascii=False),
@@ -343,6 +382,7 @@ def receive_group_info(
         member = models.StudentMember(
             session_id=sid,
             group_id=group_id,
+            program=body.program,
             student_id=m.student_id.strip(),
             full_name=m.full_name.strip(),
         )
@@ -362,7 +402,6 @@ def receive_group_info(
         "group_db_id": group_id,
         "member_count": member_count,
         "total_unique_students_received": unique_students,
-        "expected_student_count": session.expected_student_count,
     }
 
 
@@ -389,6 +428,7 @@ def receive_prof_info(
     if existing:
         existing.expertise = body.expertise.strip()
         existing.quota = body.quota
+        existing.program = body.program
         db.commit()
         received_count = db.query(models.Professor).filter_by(session_id=sid).count()
         return {
@@ -396,13 +436,13 @@ def receive_prof_info(
             "prof_db_id": existing.id,
             "full_name": existing.full_name,
             "total_profs_received": received_count,
-            "expected_prof_count": session.expected_prof_count,
         }
 
     prof = models.Professor(
         session_id=sid,
         prof_id=None,
         anonymous_code=None,
+        program=body.program,
         full_name=body.full_name.strip(),
         expertise=body.expertise.strip(),
         quota=body.quota,
@@ -462,6 +502,7 @@ def receive_student_ranking(
     for entry in body.rankings:
         db.add(models.StudentRanking(
             session_id=sid,
+            program=group.program,
             group_code=body.group_anonymous_code,
             prof_code=entry.prof_anonymous_code,
             rank=entry.rank,
@@ -517,6 +558,7 @@ def receive_prof_score(
         sub_score, main_score = _compute_main_score(entry.score_a, entry.score_b)
         db.add(models.ProfessorScore(
             session_id=sid,
+            program=prof.program,
             prof_code=body.prof_anonymous_code,
             group_code=entry.group_anonymous_code,
             score_a=entry.score_a,

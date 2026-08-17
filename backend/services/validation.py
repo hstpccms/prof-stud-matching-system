@@ -7,17 +7,28 @@ from sqlalchemy.orm import Session
 import models
 
 
-def validate_session(session_id: int, db: Session) -> Dict[str, Any]:
+def validate_session(session_id: int, db: Session, program: str = None) -> Dict[str, Any]:
     """
     Validate data in a given import session.
     Returns dict: { passed, errors, summary }
     """
     errors = []
 
-    groups = db.query(models.Group).filter_by(session_id=session_id).all()
-    professors = db.query(models.Professor).filter_by(session_id=session_id).all()
-    rankings = db.query(models.StudentRanking).filter_by(session_id=session_id).all()
-    scores = db.query(models.ProfessorScore).filter_by(session_id=session_id).all()
+    q_groups = db.query(models.Group).filter_by(session_id=session_id)
+    q_profs = db.query(models.Professor).filter_by(session_id=session_id)
+    q_rankings = db.query(models.StudentRanking).filter_by(session_id=session_id)
+    q_scores = db.query(models.ProfessorScore).filter_by(session_id=session_id)
+    
+    if program:
+        q_groups = q_groups.filter_by(program=program)
+        q_profs = q_profs.filter_by(program=program)
+        q_rankings = q_rankings.filter_by(program=program)
+        q_scores = q_scores.filter_by(program=program)
+
+    groups = q_groups.all()
+    professors = q_profs.all()
+    rankings = q_rankings.all()
+    scores = q_scores.all()
 
     group_codes = [g.anonymous_code for g in groups if g.anonymous_code]
     prof_codes = [p.anonymous_code for p in professors if p.anonymous_code]

@@ -1,5 +1,5 @@
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Layout, Menu, Typography, theme } from 'antd'
+import { Layout, Menu, Typography, theme, Select } from 'antd'
 import {
   DashboardOutlined,
   DatabaseOutlined,
@@ -23,10 +23,14 @@ const NAV_ITEMS = [
   { key: '/history', label: 'ประวัติ', icon: <HistoryOutlined /> },
 ]
 
+import { useProgram } from '../ProgramContext'
+import { PROGRAMS } from '../constants'
+
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const { token } = theme.useToken()
+  const { program, setProgram } = useProgram()
 
   const menuItems = [
     ...NAV_ITEMS.map(({ key, label, icon }) => ({ key, label, icon })),
@@ -113,9 +117,34 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             minHeight: '100vh',
             background: token.colorBgLayout,
             overflow: 'auto',
+            display: 'flex',
+            flexDirection: 'column',
           }}
         >
-          {children}
+          <div style={{
+            background: token.colorBgContainer,
+            padding: '12px 24px',
+            borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            display: 'flex',
+            justifyContent: 'flex-end',
+            alignItems: 'center',
+            position: 'sticky',
+            top: 0,
+            zIndex: 10,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <Text strong>หลักสูตร:</Text>
+              <Select 
+                value={program}
+                onChange={setProgram}
+                options={PROGRAMS.map(p => ({ label: p, value: p }))}
+                style={{ width: 250 }}
+              />
+            </div>
+          </div>
+          <div style={{ flex: 1 }}>
+            {children}
+          </div>
         </Content>
       </Layout>
     </Layout>

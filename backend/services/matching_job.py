@@ -19,12 +19,12 @@ ALGORITHM_PATH = os.path.join(
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "results")
 
 
-def _export_input_excel(session_id: int, db: Session, tmp_path: str):
+def _export_input_excel(session_id: int, program: str, db: Session, tmp_path: str):
     """Export DB data to Excel format that the algorithm expects."""
-    groups = db.query(models.Group).filter_by(session_id=session_id).all()
-    professors = db.query(models.Professor).filter_by(session_id=session_id).all()
-    rankings = db.query(models.StudentRanking).filter_by(session_id=session_id).all()
-    scores = db.query(models.ProfessorScore).filter_by(session_id=session_id).all()
+    groups = db.query(models.Group).filter_by(session_id=session_id, program=program).all()
+    professors = db.query(models.Professor).filter_by(session_id=session_id, program=program).all()
+    rankings = db.query(models.StudentRanking).filter_by(session_id=session_id, program=program).all()
+    scores = db.query(models.ProfessorScore).filter_by(session_id=session_id, program=program).all()
 
     wb = openpyxl.Workbook()
 
@@ -81,7 +81,7 @@ def _export_input_excel(session_id: int, db: Session, tmp_path: str):
     wb.save(tmp_path)
 
 
-def run_matching(run_id: int, session_id: int, seed: int, db: Session):
+def run_matching(run_id: int, session_id: int, seed: int, program: str, db: Session):
     """
     Execute the matching algorithm as a subprocess.
     Updates the MatchingRun record with results.
@@ -103,7 +103,7 @@ def run_matching(run_id: int, session_id: int, seed: int, db: Session):
     output_path = os.path.join(RESULTS_DIR, output_filename)
 
     try:
-        _export_input_excel(session_id, db, tmp_input)
+        _export_input_excel(session_id, program, db, tmp_input)
 
         # Run the algorithm script
         result = subprocess.run(

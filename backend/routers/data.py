@@ -5,7 +5,7 @@ Upload Excel, preview data, validate
 import os
 import shutil
 from typing import List, Optional
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -53,49 +53,66 @@ def list_sessions(
 @router.get("/sessions/{session_id}/groups", response_model=List[schemas.GroupOut])
 def get_groups(
     session_id: int,
+    program: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
-    return db.query(models.Group).filter_by(session_id=session_id).all()
+    query = db.query(models.Group).filter_by(session_id=session_id)
+    if program:
+        query = query.filter_by(program=program)
+    return query.all()
 
 
 @router.get("/sessions/{session_id}/professors", response_model=List[schemas.ProfessorOut])
 def get_professors(
     session_id: int,
+    program: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
-    return db.query(models.Professor).filter_by(session_id=session_id).all()
+    query = db.query(models.Professor).filter_by(session_id=session_id)
+    if program:
+        query = query.filter_by(program=program)
+    return query.all()
 
 
 @router.get("/sessions/{session_id}/rankings", response_model=List[schemas.StudentRankingOut])
 def get_rankings(
     session_id: int,
+    program: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
-    return db.query(models.StudentRanking).filter_by(session_id=session_id).all()
+    query = db.query(models.StudentRanking).filter_by(session_id=session_id)
+    if program:
+        query = query.filter_by(program=program)
+    return query.all()
 
 
 @router.get("/sessions/{session_id}/scores", response_model=List[schemas.ProfessorScoreOut])
 def get_scores(
     session_id: int,
+    program: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
-    return db.query(models.ProfessorScore).filter_by(session_id=session_id).all()
+    query = db.query(models.ProfessorScore).filter_by(session_id=session_id)
+    if program:
+        query = query.filter_by(program=program)
+    return query.all()
 
 
 @router.post("/sessions/{session_id}/validate")
 def validate(
     session_id: int,
+    program: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
     session = db.query(models.ImportSession).filter_by(id=session_id).first()
     if not session:
         raise HTTPException(404, "ไม่พบ Session")
-    result = validate_session(session_id, db)
+    result = validate_session(session_id, db, program)
     # Update session status
     session.status = "validated" if result["passed"] else "imported"
     db.commit()
@@ -104,6 +121,7 @@ def validate(
 
 @router.get("/sessions/latest/dashboard")
 def dashboard_stats(
+    program: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
@@ -129,14 +147,25 @@ def dashboard_stats(
         }
 
     sid = latest_session.id
-    val = validate_session(sid, db)
+    val = validate_session(sid, db, program)
     summary = val["summary"]
 
     # ── Compute incomplete lists ─────────────────────────────────────────────
-    groups = db.query(models.Group).filter_by(session_id=sid).all()
-    professors = db.query(models.Professor).filter_by(session_id=sid).all()
-    rankings = db.query(models.StudentRanking).filter_by(session_id=sid).all()
-    scores = db.query(models.ProfessorScore).filter_by(session_id=sid).all()
+    q_groups = db.query(models.Group).filter_by(session_id=sid)
+    q_profs = db.query(models.Professor).filter_by(session_id=sid)
+    q_rank = db.query(models.StudentRanking).filter_by(session_id=sid)
+    q_score = db.query(models.ProfessorScore).filter_by(session_id=sid)
+    
+    if program:
+        q_groups = q_groups.filter_by(program=program)
+        q_profs = q_profs.filter_by(program=program)
+        q_rank = q_rank.filter_by(program=program)
+        q_score = q_score.filter_by(program=program)
+
+    groups = q_groups.all()
+    professors = q_profs.all()
+    rankings = q_rank.all()
+    scores = q_score.all()
 
     group_codes = [g.anonymous_code for g in groups if g.anonymous_code]
     prof_codes = [p.anonymous_code for p in professors if p.anonymous_code]

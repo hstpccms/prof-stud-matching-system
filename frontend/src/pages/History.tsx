@@ -64,6 +64,10 @@ export default function HistoryPage() {
       ),
     },
     {
+      title: 'หลักสูตร', dataIndex: 'program', key: 'program',
+      render: v => <Tag color="blue">{v || '-'}</Tag>,
+    },
+    {
       title: 'Seed', dataIndex: 'seed', key: 'seed',
       render: v => <Text code>{v}</Text>,
     },
