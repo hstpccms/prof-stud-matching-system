@@ -7,6 +7,7 @@ import sys
 import json
 import re
 import tempfile
+from typing import Optional
 from datetime import datetime
 from sqlalchemy.orm import Session
 import openpyxl
@@ -19,12 +20,25 @@ ALGORITHM_PATH = os.path.join(
 RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "results")
 
 
-def _export_input_excel(session_id: int, program: str, db: Session, tmp_path: str):
-    """Export DB data to Excel format that the algorithm expects."""
-    groups = db.query(models.Group).filter_by(session_id=session_id, program=program).all()
-    professors = db.query(models.Professor).filter_by(session_id=session_id, program=program).all()
-    rankings = db.query(models.StudentRanking).filter_by(session_id=session_id, program=program).all()
-    scores = db.query(models.ProfessorScore).filter_by(session_id=session_id, program=program).all()
+def _export_input_excel(session_id: int, program: Optional[str], db: Session, tmp_path: str):
+    """Export DB data to Excel format that the algorithm expects.
+    If program is None, exports all data across all programs.
+    """
+    q_groups = db.query(models.Group).filter_by(session_id=session_id)
+    q_profs = db.query(models.Professor).filter_by(session_id=session_id)
+    q_rankings = db.query(models.StudentRanking).filter_by(session_id=session_id)
+    q_scores = db.query(models.ProfessorScore).filter_by(session_id=session_id)
+
+    if program:
+        q_groups = q_groups.filter_by(program=program)
+        q_profs = q_profs.filter_by(program=program)
+        q_rankings = q_rankings.filter_by(program=program)
+        q_scores = q_scores.filter_by(program=program)
+
+    groups = q_groups.all()
+    professors = q_profs.all()
+    rankings = q_rankings.all()
+    scores = q_scores.all()
 
     wb = openpyxl.Workbook()
 

@@ -36,15 +36,19 @@ def download_upload(
         raise HTTPException(404, "ไม่พบข้อมูล session")
 
     # สำหรับ session ที่มาจาก forms (Webhook) ไม่มีไฟล์ต้นฉบับในระบบ
-    # สร้าง Excel on the fly จากข้อมูลในฐานข้อมูลให้เลย
+    # สร้าง Excel on the fly จากข้อมูลในฐานข้อมูล (ทุก program) ให้เลย
     if session.source == "forms":
         fd, tmp_path = tempfile.mkstemp(suffix=".xlsx")
         os.close(fd)
-        _export_input_excel(session_id, db, tmp_path)
+        _export_input_excel(session_id, None, db, tmp_path)
+        # ตั้งชื่อไฟล์ให้มี .xlsx เสมอ
+        base_name = session.filename or f"forms_session_{session_id}"
+        if not base_name.endswith(".xlsx"):
+            base_name = base_name + ".xlsx"
         background_tasks.add_task(cleanup_temp_file, tmp_path)
         return FileResponse(
             tmp_path,
-            filename=session.filename or f"forms_session_{session_id}.xlsx",
+            filename=base_name,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 
