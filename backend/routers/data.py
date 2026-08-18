@@ -214,10 +214,12 @@ def dashboard_stats(
             "filename": latest_session.filename,
             "status": latest_session.status,
         },
-        "num_groups": summary["num_groups"],
-        "num_professors": summary["num_professors"],
-        "total_quota": summary["total_quota"],
-        "quota_sufficient": summary["quota_sufficient"],
+        # ── ใช้จำนวนจริงจาก DB ทั้งหมด (ไม่จำกัดแค่ที่มี anonymous_code) ──────
+        "num_groups": len(groups),
+        "num_professors": len(professors),
+        "total_quota": sum(p.quota or 0 for p in professors),
+        "quota_sufficient": sum(p.quota or 0 for p in professors) >= len(groups) if len(groups) > 0 else True,
+        # ── Ranking/Score stats ยังคงใช้ anonymous_code (เพราะ Form 3/4 อ้างอิง code) ──
         "pct_groups_ranked": summary["pct_groups_ranked"],
         "pct_profs_scored": summary["pct_profs_scored"],
         "incomplete_groups": incomplete_groups,

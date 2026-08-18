@@ -8,7 +8,7 @@ import {
 import {
   CheckCircleOutlined, CloseCircleOutlined, LoadingOutlined,
   UploadOutlined, ArrowRightOutlined, ExclamationCircleOutlined,
-  WarningOutlined, HistoryOutlined, ThunderboltOutlined,
+  WarningOutlined, HistoryOutlined,
   UserOutlined, TeamOutlined, FormOutlined, KeyOutlined, SyncOutlined,
 } from '@ant-design/icons'
 import { getDashboard, getRecentRuns, getWebhookStatus, activateWebhookSession, generateAnonymousCodes } from '../api/client'
@@ -197,50 +197,65 @@ export default function Dashboard() {
     }
   }
 
+  // ── Codes generated helpers ───────────────────────────────────────────────
+  const codesGenerated = webhookStatus?.codes_generated ?? false
+  const numGroupsWithCodes = webhookStatus?.group_codes?.length ?? 0
+  const numProfsWithCodes = webhookStatus?.prof_codes?.length ?? 0
+
   // ── Pipeline steps ────────────────────────────────────────────────────────
   const pipelineSteps = data
     ? [
         {
           key: 'groups',
           title: 'กลุ่มนักศึกษา',
-          value: `${data.num_groups} กลุ่ม`,
-          description: data.num_groups > 0 ? 'ลงทะเบียนในระบบแล้ว' : 'ยังไม่มีข้อมูลกลุ่ม',
-          done: data.num_groups > 0,
+          value: '',
+          description: webhookStatus?.is_active
+            ? (webhookStatus.form1_ready ? 'ได้รับข้อมูลครบแล้ว' : `กำลังรอข้อมูลจากนักศึกษา (${webhookStatus.received_group_count} กลุ่ม / ${webhookStatus.received_student_count} คน)`)
+            : (data.num_groups > 0 ? 'ลงทะเบียนในระบบแล้ว' : 'ยังไม่มีข้อมูลกลุ่ม'),
+          done: webhookStatus?.is_active
+            ? (webhookStatus?.form1_ready ?? false)
+            : data.num_groups > 0,
           incomplete: [] as string[],
           trackPath: '/data',
         },
         {
           key: 'professors',
           title: 'อาจารย์',
-          value: `${data.num_professors} ท่าน`,
-          description: data.quota_sufficient
-            ? `Quota รวม ${data.total_quota} — เพียงพอ`
-            : `Quota รวม ${data.total_quota} — ไม่เพียงพอ`,
-          done: data.num_professors > 0 && data.quota_sufficient,
+          value: '',
+          description: webhookStatus?.is_active
+            ? (webhookStatus.form2_ready ? 'ได้รับข้อมูลครบแล้ว' : `กำลังรอข้อมูลจากอาจารย์ (${webhookStatus.received_prof_count} ท่าน)`)
+            : (data.quota_sufficient
+                ? `Quota รวม ${data.total_quota} — เพียงพอ`
+                : `Quota รวม ${data.total_quota} — ไม่เพียงพอ`),
+          done: webhookStatus?.is_active
+            ? ((webhookStatus?.form2_ready ?? false) && data.quota_sufficient)
+            : data.num_professors > 0 && data.quota_sufficient,
           incomplete: data.quota_sufficient ? [] : ['Quota ไม่เพียงพอ'],
           trackPath: '/data',
         },
         {
           key: 'rankings',
           title: 'Student Rankings',
-          value: `${data.pct_groups_ranked}%`,
-          description:
-            data.pct_groups_ranked >= 100
-              ? 'ทุกกลุ่มจัดอันดับครบแล้ว'
-              : `${data.num_groups - data.incomplete_groups.length} / ${data.num_groups} กลุ่มจัดอันดับครบ`,
-          done: data.pct_groups_ranked >= 100,
+          value: codesGenerated ? `${data.pct_groups_ranked}%` : '',
+          description: codesGenerated
+            ? (data.pct_groups_ranked >= 100
+                ? 'ทุกกลุ่มจัดอันดับครบแล้ว'
+                : `${numGroupsWithCodes - data.incomplete_groups.length} / ${numGroupsWithCodes} กลุ่มจัดอันดับครบ`)
+            : (data.num_groups > 0 ? 'รอสร้าง Anonymous Code ก่อน' : 'ยังไม่มีข้อมูล'),
+          done: codesGenerated && data.pct_groups_ranked >= 100,
           incomplete: data.incomplete_groups,
           trackPath: '/data',
         },
         {
           key: 'scores',
           title: 'Professor Scores',
-          value: `${data.pct_profs_scored}%`,
-          description:
-            data.pct_profs_scored >= 100
-              ? 'ทุกอาจารย์ให้คะแนนครบแล้ว'
-              : `${data.num_professors - data.incomplete_profs.length} / ${data.num_professors} อาจารย์ให้คะแนนครบ`,
-          done: data.pct_profs_scored >= 100,
+          value: codesGenerated ? `${data.pct_profs_scored}%` : '',
+          description: codesGenerated
+            ? (data.pct_profs_scored >= 100
+                ? 'ทุกอาจารย์ให้คะแนนครบแล้ว'
+                : `${numProfsWithCodes - data.incomplete_profs.length} / ${numProfsWithCodes} อาจารย์ให้คะแนนครบ`)
+            : (data.num_professors > 0 ? 'รอสร้าง Anonymous Code ก่อน' : 'ยังไม่มีข้อมูล'),
+          done: codesGenerated && data.pct_profs_scored >= 100,
           incomplete: data.incomplete_profs,
           trackPath: '/data',
         },
@@ -404,26 +419,30 @@ export default function Dashboard() {
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
+          <Card style={{ borderRadius: 10 }}>
+            <Statistic
+              title={<Space><UserOutlined />อาจารย์</Space>}
+              value={data.num_professors}
+              suffix="ท่าน"
+            />
+          </Card>
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
           <Card
             style={{
               borderRadius: 10,
-              ...(!data.quota_sufficient ? { border: '1px solid #ffccc7', background: '#fff2f0' } : {}),
+              ...(!data.quota_sufficient && data.num_groups > 0 ? { border: '1px solid #ffccc7', background: '#fff2f0' } : {}),
             }}
           >
             <Statistic
-              title={<Space><UserOutlined />อาจารย์ / Quota รวม</Space>}
-              value={data.num_professors}
-              suffix={
-                <span style={{ fontWeight: 400, fontSize: 14, color: !data.quota_sufficient ? '#ff4d4f' : '#595959' }}>
-                  {' '}ท่าน •{' '}
-                  <span style={{ fontWeight: 600 }}>{data.total_quota}</span>
-                </span>
-              }
-              valueStyle={!data.quota_sufficient ? { color: '#ff4d4f' } : undefined}
-              prefix={!data.quota_sufficient ? <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} /> : undefined}
+              title="Quota รวม"
+              value={data.total_quota}
+              suffix="ที่นั่ง"
+              valueStyle={!data.quota_sufficient && data.num_groups > 0 ? { color: '#ff4d4f' } : undefined}
+              prefix={!data.quota_sufficient && data.num_groups > 0 ? <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} /> : undefined}
             />
-            {!data.quota_sufficient && (
-              <Text type="danger" style={{ fontSize: 11 }}>Quota ไม่เพียงพอ</Text>
+            {!data.quota_sufficient && data.num_groups > 0 && (
+              <Text type="danger" style={{ fontSize: 11 }}>น้อยกว่าจำนวนกลุ่ม ({data.num_groups})</Text>
             )}
           </Card>
         </Col>
@@ -438,25 +457,6 @@ export default function Dashboard() {
               <Text style={{ fontSize: 11, color: '#fa8c16' }}>
                 เหลือ {run.num_unmatched} กลุ่มที่ยังไม่ได้จับคู่
               </Text>
-            )}
-          </Card>
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
-          <Card style={{ borderRadius: 10 }}>
-            <Statistic
-              title={<Space><ThunderboltOutlined />โหมดล่าสุด</Space>}
-              value={run ? MODE_LABELS[run.mode] || run.mode : '—'}
-              valueStyle={{ fontSize: run ? (run.mode === 'both' ? 15 : 16) : 20 }}
-            />
-            {run?.status === 'success' && run.mode === 'both' && (
-              <Button
-                type="link"
-                size="small"
-                style={{ padding: 0, fontSize: 12 }}
-                onClick={() => navigate('/results')}
-              >
-                ดูเปรียบเทียบ →
-              </Button>
             )}
           </Card>
         </Col>
@@ -538,34 +538,6 @@ export default function Dashboard() {
         {/* Right column */}
         <Col xs={24} lg={8}>
           <Flex vertical gap={12} style={{ width: '100%' }}>
-            {/* Quick actions */}
-            <Card title="การดำเนินการ" size="small" style={{ borderRadius: 10 }}>
-              <Flex vertical style={{ width: '100%' }} gap={8}>
-                {[
-                  { label: 'อัปโหลด / จัดการข้อมูล', sub: 'เพิ่มหรืออัปเดต Excel', path: '/data' },
-                  { label: 'รัน Matching', sub: 'เริ่มกระบวนการจับคู่', path: '/run' },
-                  ...(run?.status === 'success'
-                    ? [
-                        { label: 'ดูผลลัพธ์', sub: 'ตาราง, สถิติ, TieBreak', path: '/results' },
-                        { label: 'ดาวน์โหลดไฟล์', sub: 'Excel ผลลัพธ์', path: '/downloads' },
-                      ]
-                    : []),
-                ].map(({ label, sub, path }) => (
-                  <Button
-                    key={path}
-                    block
-                    onClick={() => navigate(path)}
-                    icon={<ArrowRightOutlined />}
-                    style={{ textAlign: 'left', height: 'auto', padding: '8px 12px' }}
-                  >
-                    <div>
-                      <div style={{ fontWeight: 500, fontSize: 13 }}>{label}</div>
-                      <div style={{ fontSize: 11, color: '#8c8c8c', marginTop: 1 }}>{sub}</div>
-                    </div>
-                  </Button>
-                ))}
-              </Flex>
-            </Card>
 
             {/* Latest run details */}
             {run && (

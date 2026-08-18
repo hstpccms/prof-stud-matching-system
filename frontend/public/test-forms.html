@@ -298,6 +298,12 @@
 
       <hr class="divider" />
 
+      <div class="field">
+        <label>หลักสูตร <span style="color:#c04040">*</span></label>
+        <input type="text" id="groupProgram" placeholder="เช่น วิทยาการคอมพิวเตอร์, วิศวกรรมซอฟต์แวร์" value="วิทยาการคอมพิวเตอร์" />
+        <p class="hint">ระบุชื่อหลักสูตรที่นักศึกษากลุ่มนี้สังกัด</p>
+      </div>
+
       <div class="row">
         <div class="field">
           <label>หัวข้อสนใจ 1 (Title) <span style="color:#c04040">*</span></label>
@@ -349,6 +355,11 @@
       <div class="field">
         <label>ชื่อ-นามสกุลอาจารย์ <span style="color:#c04040">*</span></label>
         <input type="text" id="profName" value="อ.ดร. สมชาย ใจดี" />
+      </div>
+      <div class="field">
+        <label>หลักสูตรที่สังกัด <span style="color:#c04040">*</span></label>
+        <input type="text" id="profProgram" placeholder="เช่น วิทยาการคอมพิวเตอร์, วิศวกรรมซอฟต์แวร์" value="วิทยาการคอมพิวเตอร์" />
+        <p class="hint">หลักสูตรที่อาจารย์รับนักศึกษา (ถ้ารับหลายหลักสูตรให้คั่นด้วยจุลภาค)</p>
       </div>
       <div class="field">
         <label>ขอบเขตหัวข้อภาคนิพนธ์ที่รับ <span style="color:#c04040">*</span></label>
@@ -567,6 +578,7 @@
 
     const body = {
       members,
+      program: document.getElementById('groupProgram').value.trim() || undefined,
       topic1_title: document.getElementById('t1').value,
       topic1_detail: document.getElementById('d1').value || undefined,
       topic2_title: document.getElementById('t2').value,
@@ -586,6 +598,7 @@
     setLoading(btn, true);
     const body = {
       full_name: document.getElementById('profName').value.trim(),
+      program: document.getElementById('profProgram').value.trim() || undefined,
       expertise: document.getElementById('profExpertise').value.trim(),
       quota: parseInt(document.getElementById('profQuota').value) || 3,
     };
@@ -635,9 +648,9 @@
 
   // ── Sample data fillers ───────────────────────────────────────────────────
   const SAMPLES_F1 = [
-    { members: [{student_id:'6501001',full_name:'นาย กิตติ สมใจ'},{student_id:'6501002',full_name:'นางสาว มนัสวี รุ่งเรือง'},{student_id:'6501003',full_name:'นาย ภูวดล ชัยชนะ'}], t1:'Deep Learning สำหรับ Image Segmentation', d1:'วิเคราะห์ภาพ CT Scan ด้วย U-Net', t2:'Computer Vision', d2:'Object Detection ด้วย YOLO', t3:'NLP / Chatbot', d3:'' },
-    { members: [{student_id:'6502001',full_name:'นาย ปณิธาน แสงทอง'},{student_id:'6502002',full_name:'นางสาว วิภา เจริญสุข'},{student_id:'6502003',full_name:'นาย อนันต์ ศรีสว่าง'},{student_id:'6502004',full_name:'นางสาว ธัญญา พงษ์พิทักษ์'}], t1:'Smart Farm / Precision Agriculture', d1:'ระบบรดน้ำอัตโนมัติด้วย IoT', t2:'Embedded Systems', d2:'ESP32 + MQTT + Dashboard', t3:'Data Analytics', d3:'' },
-    { members: [{student_id:'6503001',full_name:'นาย ชยธร วงษ์สวัสดิ์'},{student_id:'6503002',full_name:'นางสาว ณิชาภัทร บุญมาก'}], t1:'Web Application ระบบจัดการคลังสินค้า', d1:'React + FastAPI + PostgreSQL', t2:'Mobile App (Flutter)', d2:'แอปตรวจสอบสต็อคสินค้า', t3:'Blockchain / Supply Chain', d3:'' },
+    { members: [{student_id:'6501001',full_name:'นาย กิตติ สมใจ'},{student_id:'6501002',full_name:'นางสาว มนัสวี รุ่งเรือง'},{student_id:'6501003',full_name:'นาย ภูวดล ชัยชนะ'}], program:'วิทยาการคอมพิวเตอร์', t1:'Deep Learning สำหรับ Image Segmentation', d1:'วิเคราะห์ภาพ CT Scan ด้วย U-Net', t2:'Computer Vision', d2:'Object Detection ด้วย YOLO', t3:'NLP / Chatbot', d3:'' },
+    { members: [{student_id:'6502001',full_name:'นาย ปณิธาน แสงทอง'},{student_id:'6502002',full_name:'นางสาว วิภา เจริญสุข'},{student_id:'6502003',full_name:'นาย อนันต์ ศรีสว่าง'},{student_id:'6502004',full_name:'นางสาว ธัญญา พงษ์พิทักษ์'}], program:'วิศวกรรมคอมพิวเตอร์', t1:'Smart Farm / Precision Agriculture', d1:'ระบบรดน้ำอัตโนมัติด้วย IoT', t2:'Embedded Systems', d2:'ESP32 + MQTT + Dashboard', t3:'Data Analytics', d3:'' },
+    { members: [{student_id:'6503001',full_name:'นาย ชยธร วงษ์สวัสดิ์'},{student_id:'6503002',full_name:'นางสาว ณิชาภัทร บุญมาก'}], program:'วิศวกรรมซอฟต์แวร์', t1:'Web Application ระบบจัดการคลังสินค้า', d1:'React + FastAPI + PostgreSQL', t2:'Mobile App (Flutter)', d2:'แอปตรวจสอบสต็อคสินค้า', t3:'Blockchain / Supply Chain', d3:'' },
   ];
   let sampleF1Idx = 0;
   function fillSampleF1() {
@@ -651,6 +664,7 @@
       row.innerHTML = `<input type="text" value="${m.student_id}" class="sid-input" /><input type="text" value="${m.full_name}" class="sname-input" /><button class="rm-btn" onclick="removeMember(this)">✕</button>`;
       list.appendChild(row);
     });
+    document.getElementById('groupProgram').value = s.program || '';
     document.getElementById('t1').value = s.t1;
     document.getElementById('d1').value = s.d1;
     document.getElementById('t2').value = s.t2;
@@ -660,15 +674,16 @@
   }
 
   const SAMPLES_F2 = [
-    { name:'ผศ.ดร. สมชาย วงษ์ประเสริฐ', ex:'AI / Machine Learning / Computer Vision', q:3 },
-    { name:'รศ.ดร. วิภา เจริญลาภ', ex:'IoT / Embedded Systems / Smart Home', q:3 },
-    { name:'อ.ดร. ณัฐพล รัตนโชติ', ex:'Web Development / Cloud / DevOps', q:4 },
-    { name:'ผศ. ชลธิชา สุขสบาย', ex:'Data Science / Bioinformatics / Healthcare AI', q:2 },
+    { name:'ผศ.ดร. สมชาย วงษ์ประเสริฐ', program:'วิทยาการคอมพิวเตอร์', ex:'AI / Machine Learning / Computer Vision', q:3 },
+    { name:'รศ.ดร. วิภา เจริญลาภ', program:'วิศวกรรมคอมพิวเตอร์', ex:'IoT / Embedded Systems / Smart Home', q:3 },
+    { name:'อ.ดร. ณัฐพล รัตนโชติ', program:'วิศวกรรมซอฟต์แวร์', ex:'Web Development / Cloud / DevOps', q:4 },
+    { name:'ผศ. ชลธิชา สุขสบาย', program:'วิทยาการคอมพิวเตอร์, วิศวกรรมซอฟต์แวร์', ex:'Data Science / Bioinformatics / Healthcare AI', q:2 },
   ];
   let sampleF2Idx = 0;
   function fillSampleF2() {
     const s = SAMPLES_F2[sampleF2Idx++ % SAMPLES_F2.length];
     document.getElementById('profName').value = s.name;
+    document.getElementById('profProgram').value = s.program || '';
     document.getElementById('profExpertise').value = s.ex;
     document.getElementById('profQuota').value = s.q;
   }

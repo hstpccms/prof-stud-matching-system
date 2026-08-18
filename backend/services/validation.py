@@ -34,6 +34,30 @@ def validate_session(session_id: int, db: Session, program: str = None) -> Dict[
     prof_codes = [p.anonymous_code for p in professors if p.anonymous_code]
     total_quota = sum(p.quota or 0 for p in professors)
 
+    # ── Check 0: Anonymous Codes must exist ────────────────────────────────
+    # ถ้ายังไม่ generate codes หรือยังไม่มีข้อมูล → ไม่สามารถรัน Matching ได้
+    if not group_codes or not prof_codes:
+        early_summary = {
+            "num_groups": len(group_codes),
+            "num_professors": len(prof_codes),
+            "total_quota": total_quota,
+            "quota_sufficient": False,
+            "pct_groups_ranked": 0.0,
+            "pct_profs_scored": 0.0,
+            "num_errors": 1,
+        }
+        if not group_codes and not prof_codes:
+            msg = "ยังไม่มีข้อมูลกลุ่มนักศึกษาและอาจารย์ที่มี Anonymous Code — กรุณา Generate Codes ก่อนรัน Matching"
+        elif not group_codes:
+            msg = "ยังไม่มีข้อมูลกลุ่มนักศึกษาที่มี Anonymous Code — กรุณา Generate Codes ก่อนรัน Matching"
+        else:
+            msg = "ยังไม่มีข้อมูลอาจารย์ที่มี Anonymous Code — กรุณา Generate Codes ก่อนรัน Matching"
+        return {
+            "passed": False,
+            "errors": [{"code": "NO_CODES", "message": msg}],
+            "summary": early_summary,
+        }
+
     # ── Check 1: Quota ──────────────────────────────────────────────────────
     if total_quota < len(group_codes):
         errors.append({
