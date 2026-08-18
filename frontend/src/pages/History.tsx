@@ -98,7 +98,7 @@ export default function HistoryPage() {
           <Button
             icon={<EyeOutlined />}
             size="small"
-            onClick={() => navigate('/results')}
+            onClick={() => navigate('/results', { state: { runId: r.id } })}
             title="ดูผลลัพธ์"
           />
           <Button

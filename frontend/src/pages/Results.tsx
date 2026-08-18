@@ -9,6 +9,7 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import { listRuns, getResults, getProfSummary, getStats } from '../api/client'
 import api from '../api/client'
+import { useLocation } from 'react-router-dom'
 
 const { Title, Text } = Typography
 
@@ -32,6 +33,7 @@ function rankColor(v: number | null): string {
 
 export default function Results() {
   const { message } = AntApp.useApp()
+  const location = useLocation()
   const [runs, setRuns] = useState<any[]>([])
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null)
   const [tab, setTab] = useState<Tab>('matching')
@@ -72,7 +74,12 @@ export default function Results() {
     listRuns().then(res => {
       const ok = res.data.filter((r: any) => r.status === 'success')
       setRuns(ok)
-      if (ok.length) setSelectedRunId(ok[0].id)
+      if (ok.length) {
+        // ถ้ามี runId ส่งมาจากหน้าประวัติ ให้เลือก run นั้น มิฉะนั้นเลือก run ล่าสุด
+        const targetId = (location.state as any)?.runId
+        const targetExists = targetId && ok.some((r: any) => r.id === targetId)
+        setSelectedRunId(targetExists ? targetId : ok[0].id)
+      }
     })
   }, [])
 
