@@ -4,7 +4,8 @@ Serve uploaded files and result Excel files
 """
 import os
 import tempfile
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -27,7 +28,8 @@ def cleanup_temp_file(path: str):
 @router.get("/upload/{session_id}")
 def download_upload(
     session_id: int,
-    background_tasks: BackgroundTasks,
+    program: Optional[str] = None,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
@@ -36,13 +38,15 @@ def download_upload(
         raise HTTPException(404, "ไม่พบข้อมูล session")
 
     # สำหรับ session ที่มาจาก forms (Webhook) ไม่มีไฟล์ต้นฉบับในระบบ
-    # สร้าง Excel on the fly จากข้อมูลในฐานข้อมูล (ทุก program) ให้เลย
+    # สร้าง Excel on the fly จากข้อมูลในฐานข้อมูล (กรองตาม program ได้)
     if session.source == "forms":
         fd, tmp_path = tempfile.mkstemp(suffix=".xlsx")
         os.close(fd)
-        _export_input_excel(session_id, None, db, tmp_path)
+        _export_input_excel(session_id, program, db, tmp_path)
         # ตั้งชื่อไฟล์ให้มี .xlsx เสมอ
         base_name = session.filename or f"forms_session_{session_id}"
+        if program:
+            base_name = f"forms_{program}_session_{session_id}"
         if not base_name.endswith(".xlsx"):
             base_name = base_name + ".xlsx"
         background_tasks.add_task(cleanup_temp_file, tmp_path)

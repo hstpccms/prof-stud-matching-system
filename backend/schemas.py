@@ -2,7 +2,7 @@
 Pydantic Schemas for request/response validation
 """
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Union, Any
 from pydantic import BaseModel
 
 
@@ -148,6 +148,43 @@ class MatchingResultOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ── Student Tracking ─────────────────────────────────────────────────────────
+class StudentTrackingOut(BaseModel):
+    id: Optional[int] = None
+    student_id: str
+    full_name: Optional[str] = "—"
+    group_id: Optional[str] = "—"
+    form_submitted: bool = True
+    status: str = "ส่งแล้ว"
+
+    model_config = {"from_attributes": True}
+
+
+# ── Submitted Entities ────────────────────────────────────────────────────────
+class SubmittedGroupOut(BaseModel):
+    group_id: Any
+    anonymous_code: Optional[str] = None
+    representative: Optional[str] = None
+    member_count: int = 0
+    members: List[StudentMemberOut] = []
+
+    model_config = {"from_attributes": True}
+
+
+class SubmittedProfOut(BaseModel):
+    prof_id: Optional[str] = None
+    anonymous_code: Optional[str] = None
+    full_name: str
+    expertise: Optional[str] = None
+    quota: int = 0
+    form2_submitted: bool = True
+    form4_submitted: bool = False
+    scores_count: int = 0
+    total_groups_to_score: int = 0
+
+    model_config = {"from_attributes": True}
+
+
 # ── Dashboard Stats ────────────────────────────────────────────────────────────
 class DashboardStats(BaseModel):
     latest_session: Optional[ImportSessionOut]
@@ -159,7 +196,11 @@ class DashboardStats(BaseModel):
     pct_profs_scored: float
     incomplete_groups: List[str]  # anonymous_codes of groups not fully ranked
     incomplete_profs: List[str]   # anonymous_codes of profs not fully scored
+    data_stale: bool = False
     latest_run: Optional[MatchingRunOut]
+    groups: List[SubmittedGroupOut] = []
+    professors: List[SubmittedProfOut] = []
+    students: List[StudentTrackingOut] = []
 
 
 # ── Webhook / MS Forms ────────────────────────────────────────────────────────────────
@@ -221,7 +262,6 @@ class FormProfScoreIn(BaseModel):
     scores: List[GroupScoreEntryIn]
 
 
-
 class GroupAnonymousCodeOut(BaseModel):
     group_id: int
     anonymous_code: str
@@ -236,16 +276,6 @@ class ProfAnonymousCodeOut(BaseModel):
     prof_id: int
     anonymous_code: str
     full_name: str
-
-    model_config = {"from_attributes": True}
-
-
-class SubmittedGroupOut(BaseModel):
-    group_id: int
-    anonymous_code: Optional[str]
-    representative: Optional[str] = None
-    member_count: int = 0
-    members: List[StudentMemberOut] = []
 
     model_config = {"from_attributes": True}
 
@@ -271,6 +301,8 @@ class WebhookStatusOut(BaseModel):
     pct_groups_ranked: float
     pct_profs_scored: float
     # ── Code tables (เพื่อแสดงตาราง mapping หลัง generate)
-    group_codes: List[GroupAnonymousCodeOut]
-    prof_codes: List[ProfAnonymousCodeOut]
+    group_codes: List[GroupAnonymousCodeOut] = []
+    prof_codes: List[ProfAnonymousCodeOut] = []
     submitted_groups: List[SubmittedGroupOut] = []
+    submitted_professors: List[SubmittedProfOut] = []
+    students: List[StudentTrackingOut] = []

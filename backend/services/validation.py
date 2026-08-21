@@ -20,10 +20,12 @@ def validate_session(session_id: int, db: Session, program: str = None) -> Dict[
     q_scores = db.query(models.ProfessorScore).filter_by(session_id=session_id)
     
     if program:
-        q_groups = q_groups.filter_by(program=program)
-        q_profs = q_profs.filter_by(program=program)
-        q_rankings = q_rankings.filter_by(program=program)
-        q_scores = q_scores.filter_by(program=program)
+        has_prog = db.query(models.Group).filter(models.Group.session_id == session_id, models.Group.program != None).count() > 0
+        if has_prog:
+            q_groups = q_groups.filter_by(program=program)
+            q_profs = q_profs.filter_by(program=program)
+            q_rankings = q_rankings.filter_by(program=program)
+            q_scores = q_scores.filter_by(program=program)
 
     groups = q_groups.all()
     professors = q_profs.all()

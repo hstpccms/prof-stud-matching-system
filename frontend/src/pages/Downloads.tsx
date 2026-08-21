@@ -3,12 +3,14 @@ import { Card, List, Button, Typography, Space, Tag, App as AntApp } from 'antd'
 import { DownloadOutlined, FileExcelOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import { listSessions, listRuns } from '../api/client'
 import api from '../api/client'
+import { useProgram } from '../ProgramContext'
 
 const { Title, Text } = Typography
 
 export default function Downloads() {
   // useApp() ต้องเรียกในระดับ component ที่อยู่ใต้ <AntApp> — ไม่ใช่ static import
   const { message } = AntApp.useApp()
+  const { program } = useProgram()
 
   const [sessions, setSessions] = useState<any[]>([])
   const [runs, setRuns] = useState<any[]>([])
@@ -16,9 +18,9 @@ export default function Downloads() {
   const [loadingId, setLoadingId] = useState<string | null>(null)
 
   useEffect(() => {
-    listSessions().then(r => setSessions(r.data))
-    listRuns().then(r => setRuns(r.data.filter((run: any) => run.status === 'success')))
-  }, [])
+    listSessions(program).then(r => setSessions(r.data))
+    listRuns(program).then(r => setRuns(r.data.filter((run: any) => run.status === 'success')))
+  }, [program])
 
   /** fetch ผ่าน axios (มี Bearer token) แล้ว trigger browser download */
   const triggerDownload = async (url: string, filename: string) => {
@@ -50,8 +52,13 @@ export default function Downloads() {
     <div style={{ padding: 32 }} className="animate-fade-in">
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
-        <Title level={4} style={{ marginBottom: 4 }}>ดาวน์โหลดไฟล์</Title>
-        <Text type="secondary">ดาวน์โหลดไฟล์ข้อมูลดิบและผลลัพธ์ทุกรอบจากที่เดียว</Text>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+          <Title level={4} style={{ margin: 0 }}>ดาวน์โหลดไฟล์</Title>
+          <Tag color="blue" style={{ fontSize: 13, padding: '2px 10px', borderRadius: 6 }}>
+            หลักสูตร: {program}
+          </Tag>
+        </div>
+        <Text type="secondary">ดาวน์โหลดไฟล์ข้อมูลดิบและผลลัพธ์การจับคู่เฉพาะหลักสูตรที่เลือก</Text>
       </div>
 
       <Space direction="vertical" size={16} style={{ width: '100%' }}>
@@ -60,13 +67,13 @@ export default function Downloads() {
           title={
             <Space>
               <FileExcelOutlined />
-              ไฟล์ข้อมูลดิบ
+              ไฟล์ข้อมูลดิบ ({program})
               <Tag>{sessions.length} ไฟล์</Tag>
             </Space>
           }
         >
           {sessions.length === 0
-            ? <Text type="secondary">ยังไม่มีไฟล์</Text>
+            ? <Text type="secondary">ยังไม่มีไฟล์ข้อมูลสำหรับหลักสูตร {program}</Text>
             : (
               <List
                 dataSource={sessions}
@@ -81,9 +88,12 @@ export default function Downloads() {
                         onClick={async () => {
                           const key = `upload-${s.id}`
                           setLoadingId(key)
+                          const fname = s.source === 'forms'
+                            ? `forms_${program}_session_${s.id}.xlsx`
+                            : (s.filename || `upload_${s.id}.xlsx`)
                           await triggerDownload(
-                            `/download/upload/${s.id}`,
-                            s.filename || `upload_${s.id}.xlsx`,
+                            `/download/upload/${s.id}?program=${encodeURIComponent(program)}`,
+                            fname,
                           )
                           setLoadingId(null)
                         }}
@@ -93,7 +103,16 @@ export default function Downloads() {
                     ]}
                   >
                     <List.Item.Meta
-                      title={<Text strong>{s.filename || `upload_${s.id}.xlsx`}</Text>}
+                      title={
+                        <Space>
+                          <Text strong>{s.source === 'forms' ? `ข้อมูลจาก MS Forms (Session #${s.id})` : (s.filename || `upload_${s.id}.xlsx`)}</Text>
+                          {s.source === 'forms' ? (
+                            <Tag color="cyan">MS Forms</Tag>
+                          ) : (
+                            <Tag color="default">Excel</Tag>
+                          )}
+                        </Space>
+                      }
                       description={
                         <Space size={8}>
                           <Text type="secondary" style={{ fontSize: 12 }}>
@@ -118,13 +137,13 @@ export default function Downloads() {
           title={
             <Space>
               <DownloadOutlined />
-              ไฟล์ผลลัพธ์
+              ไฟล์ผลลัพธ์การจับคู่ ({program})
               <Tag>{runs.length} รอบ</Tag>
             </Space>
           }
         >
           {runs.length === 0
-            ? <Text type="secondary">ยังไม่มีผลลัพธ์</Text>
+            ? <Text type="secondary">ยังไม่มีผลลัพธ์การจับคู่สำหรับหลักสูตร {program}</Text>
             : (
               <List
                 dataSource={runs}
@@ -140,7 +159,7 @@ export default function Downloads() {
                         onClick={async () => {
                           const key = `result-${r.id}`
                           setLoadingId(key)
-                          const filename = `result_run${r.id}_seed${r.seed}.xlsx`
+                          const filename = `result_${program}_run${r.id}_seed${r.seed}.xlsx`
                           await triggerDownload(
                             `/download/result/${r.id}`,
                             filename,
@@ -156,6 +175,7 @@ export default function Downloads() {
                       title={
                         <Space>
                           <Text strong>Run #{r.id}</Text>
+                          <Tag color="blue">{r.program || program}</Tag>
                           <Tag color="success">{r.num_matched} กลุ่มที่จับคู่สำเร็จ</Tag>
                           {r.num_unmatched > 0 && (
                             <Tag color="error">{r.num_unmatched} ไม่ได้จับคู่</Tag>

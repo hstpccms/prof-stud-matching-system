@@ -24,11 +24,17 @@ export default function RunMatching() {
   const { program } = useProgram()
 
   useEffect(() => {
-    listSessions().then(res => {
+    listSessions(program).then(res => {
       setSessions(res.data)
-      if (res.data.length > 0) setSelectedSid(res.data[0].id)
+      if (res.data.length > 0) {
+        if (!selectedSid || !res.data.some((s: any) => s.id === selectedSid)) {
+          setSelectedSid(res.data[0].id)
+        }
+      } else {
+        setSelectedSid(null)
+      }
     })
-  }, [])
+  }, [program])
 
   useEffect(() => {
     if (!selectedSid) return

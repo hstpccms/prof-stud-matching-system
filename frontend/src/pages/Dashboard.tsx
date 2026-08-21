@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Card, Row, Col, Statistic, Alert, Button, Typography,
   Tag, Space, Flex, Spin, Empty, Tooltip, Divider,
-  Progress, Modal, InputNumber, Form, Table, Badge,
+  Progress, Modal, InputNumber, Form, Table, Badge, Input,
 } from 'antd'
 import {
   CheckCircleOutlined, CloseCircleOutlined, LoadingOutlined,
@@ -16,6 +16,40 @@ import { useProgram } from '../ProgramContext'
 import { PROGRAMS } from '../constants'
 
 const { Title, Text } = Typography
+
+interface StudentMember {
+  student_id: string
+  full_name: string
+}
+
+interface StudentTrackingItem {
+  id?: number
+  student_id: string
+  full_name: string
+  group_id: string
+  form_submitted: boolean
+  status: string
+}
+
+interface SubmittedGroupItem {
+  group_id: string | number
+  anonymous_code?: string | null
+  representative?: string | null
+  member_count: number
+  members?: StudentMember[]
+}
+
+interface SubmittedProfItem {
+  prof_id: string
+  anonymous_code?: string | null
+  full_name: string
+  expertise?: string | null
+  quota: number
+  form2_submitted: boolean
+  form4_submitted: boolean
+  scores_count: number
+  total_groups_to_score?: number
+}
 
 interface WebhookStatus {
   session_id: number | null
@@ -35,7 +69,9 @@ interface WebhookStatus {
   pct_profs_scored: number
   group_codes: { group_id: number; anonymous_code: string; member_count: number; members: { student_id: string; full_name: string }[] }[]
   prof_codes: { prof_id: number; anonymous_code: string; full_name: string }[]
-  submitted_groups: { group_id: number; anonymous_code: string | null; members: { student_id: string; full_name: string }[] }[]
+  submitted_groups: SubmittedGroupItem[]
+  submitted_professors?: SubmittedProfItem[]
+  students?: StudentTrackingItem[]
 }
 
 interface DashboardData {
@@ -54,6 +90,9 @@ interface DashboardData {
   incomplete_groups: string[]
   incomplete_profs: string[]
   data_stale: boolean
+  groups?: SubmittedGroupItem[]
+  professors?: SubmittedProfItem[]
+  students?: StudentTrackingItem[]
   latest_run: {
     id: number
     run_at: string
@@ -108,26 +147,133 @@ export default function Dashboard() {
   const [activateModalOpen, setActivateModalOpen] = useState(false)
   const [activating, setActivating] = useState(false)
   const [generating, setGenerating] = useState(false)
+  const [studentSearch, setStudentSearch] = useState('')
+  const [profSearch, setProfSearch] = useState('')
   const [form] = Form.useForm()
   const { program } = useProgram()
 
   useEffect(() => {
+    let isMounted = true
     const fetch = () => {
       getDashboard(program)
-        .then(r => setData(r.data))
+        .then(r => { if (isMounted) setData(r.data) })
         .catch(() => {})
-        .finally(() => setLoading(false))
-      getRecentRuns()
-        .then(r => setRecentRuns(r.data))
+        .finally(() => { if (isMounted) setLoading(false) })
+      getRecentRuns(program)
+        .then(r => { if (isMounted) setRecentRuns(r.data) })
         .catch(() => {})
       getWebhookStatus(program)
-        .then(r => setWebhookStatus(r.data))
+        .then(r => { if (isMounted) setWebhookStatus(r.data) })
         .catch(() => {})
     }
     fetch()
     const t = setInterval(fetch, 6000)
-    return () => clearInterval(t)
+    return () => {
+      isMounted = false
+      clearInterval(t)
+    }
   }, [program])
+
+  // ── Consolidated Data Lists (Hooks called unconditionally at top) ──────────
+  const groupsList = useMemo<SubmittedGroupItem[]>(() => {
+    if (webhookStatus?.submitted_groups && webhookStatus.submitted_groups.length > 0) {
+      return webhookStatus.submitted_groups
+    }
+    if (data?.groups && data.groups.length > 0) {
+      return data.groups
+    }
+    return []
+  }, [webhookStatus?.submitted_groups, data?.groups])
+
+  const studentsList = useMemo<StudentTrackingItem[]>(() => {
+    if (webhookStatus?.students && webhookStatus.students.length > 0) {
+      return webhookStatus.students
+    }
+    if (data?.students && data.students.length > 0) {
+      return data.students
+    }
+    const list: StudentTrackingItem[] = []
+    groupsList.forEach((g, idx) => {
+      const gCode = (g.anonymous_code || g.group_id || `กลุ่ม #${idx + 1}`).toString()
+      if (g.members && g.members.length > 0) {
+        g.members.forEach(m => {
+          list.push({
+            student_id: m.student_id,
+            full_name: m.full_name || '—',
+            group_id: gCode,
+            form_submitted: true,
+            status: 'ส่งแล้ว',
+          })
+        })
+      } else if (g.representative) {
+        list.push({
+          student_id: (g.group_id || g.anonymous_code || `STD-${idx + 1}`).toString(),
+          full_name: g.representative,
+          group_id: gCode,
+          form_submitted: true,
+          status: 'ส่งแล้ว',
+        })
+      }
+    })
+    return list
+  }, [webhookStatus?.students, data?.students, groupsList])
+
+  const profsList = useMemo<SubmittedProfItem[]>(() => {
+    if (webhookStatus?.submitted_professors && webhookStatus.submitted_professors.length > 0) {
+      return webhookStatus.submitted_professors
+    }
+    if (data?.professors && data.professors.length > 0) {
+      return data.professors
+    }
+    return []
+  }, [webhookStatus?.submitted_professors, data?.professors])
+
+  const filteredStudents = useMemo(() => {
+    if (!studentSearch.trim()) return studentsList
+    const q = studentSearch.toLowerCase().trim()
+    return studentsList.filter(
+      s =>
+        s.student_id.toLowerCase().includes(q) ||
+        s.full_name.toLowerCase().includes(q) ||
+        s.group_id.toLowerCase().includes(q)
+    )
+  }, [studentsList, studentSearch])
+
+  const filteredProfs = useMemo(() => {
+    if (!profSearch.trim()) return profsList
+    const q = profSearch.toLowerCase().trim()
+    return profsList.filter(
+      p =>
+        p.full_name.toLowerCase().includes(q) ||
+        p.prof_id.toLowerCase().includes(q) ||
+        (p.expertise && p.expertise.toLowerCase().includes(q))
+    )
+  }, [profsList, profSearch])
+
+  const safeData: DashboardData = useMemo(() => {
+    const totalProfQuota = profsList.reduce((acc, p) => acc + (p.quota || 0), 0)
+    const numGroups = data?.num_groups ?? groupsList.length
+    const numProfs = data?.num_professors ?? profsList.length
+    const totalQuota = data?.total_quota ?? totalProfQuota
+    return {
+      latest_session: data?.latest_session ?? null,
+      num_groups: numGroups,
+      num_professors: numProfs,
+      total_quota: totalQuota,
+      quota_sufficient: data?.quota_sufficient ?? (numGroups === 0 || totalQuota >= numGroups),
+      pct_groups_ranked: data?.pct_groups_ranked ?? (webhookStatus?.pct_groups_ranked || 0),
+      pct_profs_scored: data?.pct_profs_scored ?? (webhookStatus?.pct_profs_scored || 0),
+      incomplete_groups: data?.incomplete_groups ?? [],
+      incomplete_profs: data?.incomplete_profs ?? [],
+      data_stale: data?.data_stale ?? false,
+      groups: groupsList,
+      professors: profsList,
+      students: studentsList,
+      latest_run: data?.latest_run ?? null,
+    }
+  }, [data, groupsList, profsList, studentsList, webhookStatus])
+
+  const run = safeData.latest_run
 
   const handleActivate = async (values: any) => {
     setActivating(true)
@@ -156,29 +302,27 @@ export default function Dashboard() {
     setGenerating(false)
   }
 
-  const run = data?.latest_run
+  // ── Alert Banners ─────────────────────────────────────────────────────────
+  const banners = useMemo(() => {
+    const list: Array<{
+      key: string
+      type: 'error' | 'warning'
+      message: string
+      actionLabel?: string
+      actionPath?: string
+    }> = []
 
-  // ── Alert Banners (sorted by severity: danger first) ─────────────────────
-  const banners: Array<{
-    key: string
-    type: 'error' | 'warning'
-    message: string
-    actionLabel?: string
-    actionPath?: string
-  }> = []
-
-  if (data) {
-    if (!data.quota_sufficient) {
-      banners.push({
+    if (!safeData.quota_sufficient && safeData.num_groups > 0) {
+      list.push({
         key: 'quota',
         type: 'error',
-        message: `Quota รวมของอาจารย์ (${data.total_quota}) น้อยกว่าจำนวนกลุ่มนักศึกษา (${data.num_groups}) — ไม่สามารถรัน Matching ได้ กรุณาเพิ่ม Quota`,
+        message: `Quota รวมของอาจารย์ (${safeData.total_quota}) น้อยกว่าจำนวนกลุ่มนักศึกษา (${safeData.num_groups}) — ไม่สามารถรัน Matching ได้ กรุณาเพิ่ม Quota`,
         actionLabel: 'ไปหน้าจัดการข้อมูล',
         actionPath: '/data',
       })
     }
     if (run?.status === 'success' && run.num_unmatched > 0) {
-      banners.push({
+      list.push({
         key: 'unmatched',
         type: 'warning',
         message: `การรันล่าสุดมี ${run.num_unmatched} กลุ่มที่ยังไม่ได้จับคู่ (Unmatched)`,
@@ -186,96 +330,122 @@ export default function Dashboard() {
         actionPath: '/results',
       })
     }
-    if (data.data_stale && data.latest_session && run) {
-      banners.push({
+    if (safeData.data_stale && safeData.latest_session && run) {
+      list.push({
         key: 'stale',
         type: 'warning',
-        message: `ข้อมูลมีการอัปเดตหลังรันล่าสุด — "${data.latest_session.filename || `Session #${data.latest_session.id}`}" อัปโหลดเมื่อ ${formatDateFull(data.latest_session.uploaded_at)} แต่รันล่าสุดคือ ${formatDateFull(run.run_at)} ควรรันใหม่`,
+        message: `ข้อมูลมีการอัปเดตหลังรันล่าสุด — "${safeData.latest_session.filename || `Session #${safeData.latest_session.id}`}" อัปโหลดเมื่อ ${formatDateFull(safeData.latest_session.uploaded_at)} แต่รันล่าสุดคือ ${formatDateFull(run.run_at)} ควรรันใหม่`,
         actionLabel: 'รันใหม่',
         actionPath: '/run',
       })
     }
-  }
+    return list
+  }, [safeData, run])
 
   // ── Codes generated helpers ───────────────────────────────────────────────
   const codesGenerated = webhookStatus?.codes_generated ?? false
-  const numGroupsWithCodes = webhookStatus?.group_codes?.length ?? 0
-  const numProfsWithCodes = webhookStatus?.prof_codes?.length ?? 0
+  const numGroupsWithCodes = webhookStatus?.group_codes?.length ?? groupsList.length
+  const numProfsWithCodes = webhookStatus?.prof_codes?.length ?? profsList.length
 
   // ── Pipeline steps ────────────────────────────────────────────────────────
-  const pipelineSteps = data
-    ? [
-        {
-          key: 'groups',
-          title: 'กลุ่มนักศึกษา',
-          value: '',
-          description: webhookStatus?.is_active
-            ? (webhookStatus.form1_ready ? 'ได้รับข้อมูลครบแล้ว' : `กำลังรอข้อมูลจากนักศึกษา (${webhookStatus.received_group_count} กลุ่ม / ${webhookStatus.received_student_count} คน)`)
-            : (data.num_groups > 0 ? 'ลงทะเบียนในระบบแล้ว' : 'ยังไม่มีข้อมูลกลุ่ม'),
-          done: webhookStatus?.is_active
-            ? (webhookStatus?.form1_ready ?? false)
-            : data.num_groups > 0,
-          incomplete: [] as string[],
-          trackPath: '/data',
-        },
-        {
-          key: 'professors',
-          title: 'อาจารย์',
-          value: '',
-          description: webhookStatus?.is_active
-            ? (webhookStatus.form2_ready ? 'ได้รับข้อมูลครบแล้ว' : `กำลังรอข้อมูลจากอาจารย์ (${webhookStatus.received_prof_count} ท่าน)`)
-            : (data.quota_sufficient
-                ? `Quota รวม ${data.total_quota} — เพียงพอ`
-                : `Quota รวม ${data.total_quota} — ไม่เพียงพอ`),
-          done: webhookStatus?.is_active
-            ? ((webhookStatus?.form2_ready ?? false) && data.quota_sufficient)
-            : data.num_professors > 0 && data.quota_sufficient,
-          incomplete: data.quota_sufficient ? [] : ['Quota ไม่เพียงพอ'],
-          trackPath: '/data',
-        },
-        {
-          key: 'rankings',
-          title: 'Student Rankings',
-          value: codesGenerated ? `${data.pct_groups_ranked}%` : '',
-          description: codesGenerated
-            ? (data.pct_groups_ranked >= 100
-                ? 'ทุกกลุ่มจัดอันดับครบแล้ว'
-                : `${numGroupsWithCodes - data.incomplete_groups.length} / ${numGroupsWithCodes} กลุ่มจัดอันดับครบ`)
-            : (data.num_groups > 0 ? 'รอสร้าง Anonymous Code ก่อน' : 'ยังไม่มีข้อมูล'),
-          done: codesGenerated && data.pct_groups_ranked >= 100,
-          incomplete: data.incomplete_groups,
-          trackPath: '/data',
-        },
-        {
-          key: 'scores',
-          title: 'Professor Scores',
-          value: codesGenerated ? `${data.pct_profs_scored}%` : '',
-          description: codesGenerated
-            ? (data.pct_profs_scored >= 100
-                ? 'ทุกอาจารย์ให้คะแนนครบแล้ว'
-                : `${numProfsWithCodes - data.incomplete_profs.length} / ${numProfsWithCodes} อาจารย์ให้คะแนนครบ`)
-            : (data.num_professors > 0 ? 'รอสร้าง Anonymous Code ก่อน' : 'ยังไม่มีข้อมูล'),
-          done: codesGenerated && data.pct_profs_scored >= 100,
-          incomplete: data.incomplete_profs,
-          trackPath: '/data',
-        },
-        {
-          key: 'algorithm',
-          title: 'Matching Algorithm',
-          value: '',
-          description: !run
-            ? 'ยังไม่เคยรัน'
-            : run.status === 'running'
-            ? 'กำลังรัน...'
-            : run.status === 'success'
-            ? `สำเร็จ — ${formatDateFull(run.run_at)}`
-            : 'ล้มเหลว',
-          done: run?.status === 'success',
-          incomplete: [],
-          trackPath: run?.status === 'success' ? '/results' : '/run',
-        },
-      ]
-    : []
+  const pipelineSteps = useMemo(() => {
+    return [
+      {
+        key: 'groups',
+        title: 'กลุ่มนักศึกษา',
+        value: '',
+        description: webhookStatus?.is_active
+          ? (webhookStatus.form1_ready ? 'ได้รับข้อมูลครบแล้ว' : `กำลังรอข้อมูลจากนักศึกษา (${webhookStatus.received_group_count} กลุ่ม / ${webhookStatus.received_student_count} คน)`)
+          : (safeData.num_groups > 0 ? 'ลงทะเบียนในระบบแล้ว' : 'ยังไม่มีข้อมูลกลุ่ม'),
+        done: webhookStatus?.is_active
+          ? (webhookStatus?.form1_ready ?? false)
+          : safeData.num_groups > 0,
+        incomplete: [] as string[],
+        trackPath: '/data',
+      },
+      {
+        key: 'professors',
+        title: 'อาจารย์',
+        value: '',
+        description: webhookStatus?.is_active
+          ? (webhookStatus.form2_ready ? 'ได้รับข้อมูลครบแล้ว' : `กำลังรอข้อมูลจากอาจารย์ (${webhookStatus.received_prof_count} ท่าน)`)
+          : (safeData.quota_sufficient
+              ? `Quota รวม ${safeData.total_quota} — เพียงพอ`
+              : `Quota รวม ${safeData.total_quota} — ไม่เพียงพอ`),
+        done: webhookStatus?.is_active
+          ? ((webhookStatus?.form2_ready ?? false) && safeData.quota_sufficient)
+          : safeData.num_professors > 0 && safeData.quota_sufficient,
+        incomplete: safeData.quota_sufficient ? [] : ['Quota ไม่เพียงพอ'],
+        trackPath: '/data',
+      },
+      {
+        key: 'rankings',
+        title: 'Student Rankings',
+        value: codesGenerated ? `${safeData.pct_groups_ranked}%` : '',
+        description: codesGenerated
+          ? (safeData.pct_groups_ranked >= 100
+              ? 'ทุกกลุ่มจัดอันดับครบแล้ว'
+              : `${numGroupsWithCodes - safeData.incomplete_groups.length} / ${numGroupsWithCodes} กลุ่มจัดอันดับครบ`)
+          : (safeData.num_groups > 0 ? 'รอสร้าง Anonymous Code ก่อน' : 'ยังไม่มีข้อมูล'),
+        done: codesGenerated && safeData.pct_groups_ranked >= 100,
+        incomplete: safeData.incomplete_groups,
+        trackPath: '/data',
+      },
+      {
+        key: 'scores',
+        title: 'Professor Scores',
+        value: codesGenerated ? `${safeData.pct_profs_scored}%` : '',
+        description: codesGenerated
+          ? (safeData.pct_profs_scored >= 100
+              ? 'ทุกอาจารย์ให้คะแนนครบแล้ว'
+              : `${numProfsWithCodes - safeData.incomplete_profs.length} / ${numProfsWithCodes} อาจารย์ให้คะแนนครบ`)
+          : (safeData.num_professors > 0 ? 'รอสร้าง Anonymous Code ก่อน' : 'ยังไม่มีข้อมูล'),
+        done: codesGenerated && safeData.pct_profs_scored >= 100,
+        incomplete: safeData.incomplete_profs,
+        trackPath: '/data',
+      },
+      {
+        key: 'algorithm',
+        title: 'Matching Algorithm',
+        value: '',
+        description: !run
+          ? 'ยังไม่เคยรัน'
+          : run.status === 'running'
+          ? 'กำลังรัน...'
+          : run.status === 'success'
+          ? `สำเร็จ — ${formatDateFull(run.run_at)}`
+          : 'ล้มเหลว',
+        done: run?.status === 'success',
+        incomplete: [],
+        trackPath: run?.status === 'success' ? '/results' : '/run',
+      },
+    ]
+  }, [webhookStatus, safeData, codesGenerated, numGroupsWithCodes, numProfsWithCodes, run])
+
+  // ── Matched card colors ───────────────────────────────────────────────────
+  const matchedTotal = safeData.num_groups
+  const matchedNum = run?.status === 'success' ? run.num_matched : null
+  const matchRatio = matchedNum !== null && matchedTotal > 0 ? matchedNum / matchedTotal : null
+  const matchCardStyle: React.CSSProperties =
+    matchRatio === null
+      ? {}
+      : matchRatio >= 1
+      ? { background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 8 }
+      : matchRatio >= 0.8
+      ? { background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 8 }
+      : { background: '#fff2f0', border: '1px solid #ffccc7', borderRadius: 8 }
+  const matchValueColor =
+    matchRatio === null ? '#1677ff'
+    : matchRatio >= 1 ? '#52c41a'
+    : matchRatio >= 0.8 ? '#fa8c16'
+    : '#ff4d4f'
+
+  const hasAnyData =
+    groupsList.length > 0 ||
+    profsList.length > 0 ||
+    safeData.num_groups > 0 ||
+    safeData.num_professors > 0 ||
+    (webhookStatus?.is_active ?? false)
 
   // ── Loading ───────────────────────────────────────────────────────────────
   if (loading) {
@@ -290,9 +460,7 @@ export default function Dashboard() {
   }
 
   // ── Empty state ───────────────────────────────────────────────────────────
-  // ข้าม empty state ถ้ากำลังรับฟอร์มอยู่ (webhookStatus.is_active)
-  // เพื่อให้ส่วน MS Forms Status ยังคงแสดงอยู่แม้จะยังไม่มีกลุ่ม
-  if ((!data || data.num_groups === 0) && !webhookStatus?.is_active) {
+  if (!hasAnyData) {
     return (
       <div style={{ padding: 32 }}>
         <Flex justify="space-between" align="flex-start" style={{ marginBottom: 24, flexWrap: 'wrap', gap: 16 }}>
@@ -322,7 +490,7 @@ export default function Dashboard() {
           </Empty>
         </Card>
 
-        {/* Modal เปิดรอบรับฟอร์ม (ต้องมีแม้ใน empty state) */}
+        {/* Modal เปิดรอบรับฟอร์ม */}
         <Modal
           title="เปิดรอบรับฟอร์มใหม่"
           open={activateModalOpen}
@@ -330,12 +498,23 @@ export default function Dashboard() {
           footer={null}
         >
           <Form form={form} layout="vertical" onFinish={handleActivate}>
-            <Form.Item name="expected_student_count" label="จำนวนนักศึกษาทั้งหมดที่คาดว่าจะตอบฟอร์ม" rules={[{ required: true }]}>
-              <InputNumber min={1} style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="expected_prof_count" label="จำนวนอาจารย์ทั้งหมดที่คาดว่าจะตอบฟอร์ม" rules={[{ required: true }]}>
-              <InputNumber min={1} style={{ width: '100%' }} />
-            </Form.Item>
+            {PROGRAMS.map(p => (
+              <div key={p} style={{ marginBottom: 16, padding: 12, border: '1px solid #f0f0f0', borderRadius: 8 }}>
+                <Text strong style={{ display: 'block', marginBottom: 8 }}>หลักสูตร: {p}</Text>
+                <Row gutter={16}>
+                  <Col span={12}>
+                    <Form.Item name={`students_${p}`} label="นศ. ที่คาดหวัง" rules={[{ required: true }]}>
+                      <InputNumber min={0} style={{ width: '100%' }} />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item name={`profs_${p}`} label="อ. ที่คาดหวัง" rules={[{ required: true }]}>
+                      <InputNumber min={0} style={{ width: '100%' }} />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              </div>
+            ))}
             <Button type="primary" htmlType="submit" loading={activating} block>
               ยืนยันเปิดรอบรับฟอร์ม
             </Button>
@@ -344,26 +523,6 @@ export default function Dashboard() {
       </div>
     )
   }
-  
-  if (!data) return null;
-
-  // ── Matched card colors ───────────────────────────────────────────────────
-  const matchedTotal = data?.num_groups ?? 0
-  const matchedNum = run?.status === 'success' ? run.num_matched : null
-  const matchRatio = matchedNum !== null && matchedTotal > 0 ? matchedNum / matchedTotal : null
-  const matchCardStyle: React.CSSProperties =
-    matchRatio === null
-      ? {}
-      : matchRatio >= 1
-      ? { background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 8 }
-      : matchRatio >= 0.8
-      ? { background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 8 }
-      : { background: '#fff2f0', border: '1px solid #ffccc7', borderRadius: 8 }
-  const matchValueColor =
-    matchRatio === null ? '#1677ff'
-    : matchRatio >= 1 ? '#52c41a'
-    : matchRatio >= 0.8 ? '#fa8c16'
-    : '#ff4d4f'
 
   // ── Main render ───────────────────────────────────────────────────────────
   return (
@@ -413,7 +572,7 @@ export default function Dashboard() {
           <Card style={{ borderRadius: 10 }}>
             <Statistic
               title={<Space><TeamOutlined />กลุ่มนักศึกษา</Space>}
-              value={data.num_groups}
+              value={safeData.num_groups}
               suffix="กลุ่ม"
             />
           </Card>
@@ -422,7 +581,7 @@ export default function Dashboard() {
           <Card style={{ borderRadius: 10 }}>
             <Statistic
               title={<Space><UserOutlined />อาจารย์</Space>}
-              value={data.num_professors}
+              value={safeData.num_professors}
               suffix="ท่าน"
             />
           </Card>
@@ -431,18 +590,18 @@ export default function Dashboard() {
           <Card
             style={{
               borderRadius: 10,
-              ...(!data.quota_sufficient && data.num_groups > 0 ? { border: '1px solid #ffccc7', background: '#fff2f0' } : {}),
+              ...(!safeData.quota_sufficient && safeData.num_groups > 0 ? { border: '1px solid #ffccc7', background: '#fff2f0' } : {}),
             }}
           >
             <Statistic
               title="Quota รวม"
-              value={data.total_quota}
+              value={safeData.total_quota}
               suffix="ที่นั่ง"
-              valueStyle={!data.quota_sufficient && data.num_groups > 0 ? { color: '#ff4d4f' } : undefined}
-              prefix={!data.quota_sufficient && data.num_groups > 0 ? <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} /> : undefined}
+              valueStyle={!safeData.quota_sufficient && safeData.num_groups > 0 ? { color: '#ff4d4f' } : undefined}
+              prefix={!safeData.quota_sufficient && safeData.num_groups > 0 ? <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} /> : undefined}
             />
-            {!data.quota_sufficient && data.num_groups > 0 && (
-              <Text type="danger" style={{ fontSize: 11 }}>น้อยกว่าจำนวนกลุ่ม ({data.num_groups})</Text>
+            {!safeData.quota_sufficient && safeData.num_groups > 0 && (
+              <Text type="danger" style={{ fontSize: 11 }}>น้อยกว่าจำนวนกลุ่ม ({safeData.num_groups})</Text>
             )}
           </Card>
         </Col>
@@ -462,7 +621,7 @@ export default function Dashboard() {
         </Col>
       </Row>
 
-      {/* ── Main Row ──────────────────────────────────────────────────────── */}
+      {/* ── Main Row: Pipeline & Recent Runs ─────────────────────────────────── */}
       <Row gutter={[16, 16]}>
         {/* Pipeline */}
         <Col xs={24} lg={16}>
@@ -500,7 +659,6 @@ export default function Dashboard() {
                             >
                               {step.description}
                             </Text>
-                            {/* Incomplete code tags */}
                             {!step.done && step.key !== 'algorithm' && step.key !== 'professors' && step.incomplete.length > 0 && (
                               <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                                 {incomplete.map(code => (
@@ -512,7 +670,6 @@ export default function Dashboard() {
                               </div>
                             )}
                           </div>
-                          {/* Follow-up button */}
                           {!step.done && (
                             <Button
                               size="small"
@@ -538,7 +695,6 @@ export default function Dashboard() {
         {/* Right column */}
         <Col xs={24} lg={8}>
           <Flex vertical gap={12} style={{ width: '100%' }}>
-
             {/* Latest run details */}
             {run && (
               <Card size="small" style={{ borderRadius: 10 }}>
@@ -651,7 +807,296 @@ export default function Dashboard() {
         </Col>
       </Row>
 
-      {/* ── MS Forms Status Section ─────────────────────────────────── */}
+      {/* ── 1. ส่วนกลุ่มนักศึกษา (Student Groups Section) ───────────────── */}
+      <Card
+        style={{ borderRadius: 10, marginTop: 20 }}
+        title={
+          <Flex align="center" gap={8}>
+            <TeamOutlined style={{ color: '#1677ff', fontSize: 18 }} />
+            <span style={{ fontWeight: 600 }}>ส่วนกลุ่มนักศึกษา</span>
+            <Badge count={groupsList.length} style={{ backgroundColor: '#1677ff' }} />
+          </Flex>
+        }
+      >
+        <Row gutter={[16, 16]}>
+          {/* ตารางสรุปกลุ่ม */}
+          <Col xs={24} lg={8}>
+            <Card
+              size="small"
+              style={{ borderRadius: 8, height: '100%', border: '1px solid #f0f0f0' }}
+              title={<span style={{ fontSize: 13, fontWeight: 600 }}>📊 ตารางสรุปกลุ่ม</span>}
+            >
+              <Table
+                dataSource={groupsList}
+                rowKey={r => String(r.group_id || r.anonymous_code || Math.random())}
+                size="small"
+                pagination={{ pageSize: 8, size: 'small', showTotal: total => `รวม ${total} กลุ่ม` }}
+                columns={[
+                  {
+                    title: 'กลุ่มที่',
+                    key: 'group_no',
+                    width: 70,
+                    align: 'center',
+                    render: (_, __, i) => i + 1,
+                  },
+                  {
+                    title: 'GroupID',
+                    key: 'group_id',
+                    align: 'center',
+                    render: (_, r) => (
+                      <Tag color="blue" style={{ fontWeight: 600 }}>
+                        {r.group_id || r.anonymous_code || '-'}
+                      </Tag>
+                    ),
+                  },
+                  {
+                    title: 'จำนวนสมาชิก',
+                    key: 'member_count',
+                    align: 'center',
+                    render: (_, r) => `${r.member_count ?? (r.members?.length || 0)} คน`,
+                  },
+                ]}
+              />
+            </Card>
+          </Col>
+
+          {/* ตารางติดตามรายชื่อนักศึกษาทั้งหมด (ใหม่) */}
+          <Col xs={24} lg={16}>
+            <Card
+              size="small"
+              style={{ borderRadius: 8, height: '100%', border: '1px solid #f0f0f0' }}
+              title={
+                <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>👥 ตารางติดตามรายชื่อนักศึกษาทั้งหมด</span>
+                  <Input.Search
+                    placeholder="ค้นหารหัส / ชื่อ / กลุ่ม..."
+                    allowClear
+                    size="small"
+                    style={{ width: 220 }}
+                    value={studentSearch}
+                    onChange={e => setStudentSearch(e.target.value)}
+                  />
+                </Flex>
+              }
+            >
+              <Table
+                dataSource={filteredStudents}
+                rowKey={r => r.student_id || String(Math.random())}
+                size="small"
+                pagination={{ pageSize: 8, size: 'small', showTotal: total => `รวม ${total} คน` }}
+                columns={[
+                  {
+                    title: 'ลำดับ',
+                    key: 'index',
+                    width: 60,
+                    align: 'center',
+                    render: (_, __, i) => i + 1,
+                  },
+                  {
+                    title: 'รหัสนักศึกษา',
+                    dataIndex: 'student_id',
+                    key: 'student_id',
+                    width: 120,
+                    render: v => <Text strong>{v}</Text>,
+                  },
+                  {
+                    title: 'ชื่อ-นามสกุล',
+                    dataIndex: 'full_name',
+                    key: 'full_name',
+                    render: v => <Text>{v || '—'}</Text>,
+                  },
+                  {
+                    title: 'กลุ่มที่สังกัด',
+                    dataIndex: 'group_id',
+                    key: 'group_id',
+                    width: 110,
+                    align: 'center',
+                    render: v => <Tag color="geekblue">{v || '—'}</Tag>,
+                  },
+                  {
+                    title: 'สถานะส่งฟอร์ม',
+                    key: 'status',
+                    width: 120,
+                    align: 'center',
+                    render: (_, r) =>
+                      r.form_submitted || r.status === 'ส่งแล้ว' ? (
+                        <Tag color="success" icon={<CheckCircleOutlined />}>
+                          ส่งแล้ว
+                        </Tag>
+                      ) : (
+                        <Tag color="error" icon={<CloseCircleOutlined />}>
+                          ยังไม่ส่ง
+                        </Tag>
+                      ),
+                  },
+                ]}
+              />
+            </Card>
+          </Col>
+        </Row>
+      </Card>
+
+      {/* ── 2. ส่วนอาจารย์ (Professors Section) ───────────────────────── */}
+      <Card
+        style={{ borderRadius: 10, marginTop: 16 }}
+        title={
+          <Flex align="center" gap={8}>
+            <UserOutlined style={{ color: '#722ed1', fontSize: 18 }} />
+            <span style={{ fontWeight: 600 }}>ส่วนอาจารย์</span>
+            <Badge count={profsList.length} style={{ backgroundColor: '#722ed1' }} />
+          </Flex>
+        }
+      >
+        <Row gutter={[16, 16]}>
+          {/* ตารางสรุปโควต้าอาจารย์ */}
+          <Col xs={24} lg={8}>
+            <Card
+              size="small"
+              style={{ borderRadius: 8, height: '100%', border: '1px solid #f0f0f0' }}
+              title={<span style={{ fontSize: 13, fontWeight: 600 }}>📊 ตารางสรุปโควต้าอาจารย์</span>}
+            >
+              <Table
+                dataSource={profsList}
+                rowKey={r => String(r.prof_id || r.anonymous_code || Math.random())}
+                size="small"
+                pagination={{ pageSize: 8, size: 'small', showTotal: total => `รวม ${total} ท่าน` }}
+                columns={[
+                  {
+                    title: 'คนที่',
+                    key: 'prof_no',
+                    width: 70,
+                    align: 'center',
+                    render: (_, __, i) => i + 1,
+                  },
+                  {
+                    title: 'ProfID',
+                    key: 'prof_id',
+                    align: 'center',
+                    render: (_, r) => (
+                      <Tag color="purple" style={{ fontWeight: 600 }}>
+                        {r.prof_id || r.anonymous_code || '-'}
+                      </Tag>
+                    ),
+                  },
+                  {
+                    title: 'โควต้ากลุ่ม',
+                    dataIndex: 'quota',
+                    key: 'quota',
+                    align: 'center',
+                    render: v => (
+                      <Text strong style={{ color: '#1677ff', fontSize: 13 }}>
+                        {v ?? 0} กลุ่ม
+                      </Text>
+                    ),
+                  },
+                ]}
+              />
+            </Card>
+          </Col>
+
+          {/* ตารางติดตามรายชื่ออาจารย์ทั้งหมด (ใหม่) */}
+          <Col xs={24} lg={16}>
+            <Card
+              size="small"
+              style={{ borderRadius: 8, height: '100%', border: '1px solid #f0f0f0' }}
+              title={
+                <Flex justify="space-between" align="center" wrap="wrap" gap={8}>
+                  <span style={{ fontSize: 13, fontWeight: 600 }}>👨‍🏫 ตารางติดตามรายชื่ออาจารย์ทั้งหมด</span>
+                  <Input.Search
+                    placeholder="ค้นหาชื่ออาจารย์ / ความเชี่ยวชาญ..."
+                    allowClear
+                    size="small"
+                    style={{ width: 240 }}
+                    value={profSearch}
+                    onChange={e => setProfSearch(e.target.value)}
+                  />
+                </Flex>
+              }
+            >
+              <Table
+                dataSource={filteredProfs}
+                rowKey={r => String(r.prof_id || r.anonymous_code || Math.random())}
+                size="small"
+                pagination={{ pageSize: 8, size: 'small', showTotal: total => `รวม ${total} ท่าน` }}
+                columns={[
+                  {
+                    title: 'ลำดับ',
+                    key: 'index',
+                    width: 60,
+                    align: 'center',
+                    render: (_, __, i) => i + 1,
+                  },
+                  {
+                    title: 'ชื่อ-นามสกุล',
+                    dataIndex: 'full_name',
+                    key: 'full_name',
+                    width: 170,
+                    render: v => <Text strong>{v || '—'}</Text>,
+                  },
+                  {
+                    title: 'ความเชี่ยวชาญ',
+                    dataIndex: 'expertise',
+                    key: 'expertise',
+                    render: v => <Text type="secondary" style={{ fontSize: 12 }}>{v || '—'}</Text>,
+                  },
+                  {
+                    title: 'โควต้า',
+                    dataIndex: 'quota',
+                    key: 'quota',
+                    width: 90,
+                    align: 'center',
+                    render: v => <Tag color="cyan">{v ?? 0} กลุ่ม</Tag>,
+                  },
+                  {
+                    title: 'สถานะ Form 2',
+                    key: 'form2',
+                    width: 110,
+                    align: 'center',
+                    render: (_, r) =>
+                      r.form2_submitted ? (
+                        <Tag color="success" icon={<CheckCircleOutlined />}>
+                          ส่งแล้ว
+                        </Tag>
+                      ) : (
+                        <Tag color="error">ยังไม่ส่ง</Tag>
+                      ),
+                  },
+                  {
+                    title: 'สถานะ Form 4 (ให้คะแนน)',
+                    key: 'form4',
+                    width: 170,
+                    align: 'center',
+                    render: (_, r) => {
+                      const scored = r.scores_count || 0
+                      const total = r.total_groups_to_score || numGroupsWithCodes || safeData.num_groups
+                      if (r.form4_submitted || (total > 0 && scored >= total)) {
+                        return (
+                          <Tag color="success" icon={<CheckCircleOutlined />}>
+                            ให้คะแนนแล้ว ({scored}/{total})
+                          </Tag>
+                        )
+                      }
+                      if (scored > 0) {
+                        return (
+                          <Tag color="processing" icon={<LoadingOutlined />}>
+                            กำลังให้คะแนน ({scored}/{total})
+                          </Tag>
+                        )
+                      }
+                      if (codesGenerated || safeData.pct_profs_scored > 0) {
+                        return <Tag color="warning">ยังไม่ส่ง</Tag>
+                      }
+                      return <Tag color="default">รอให้คะแนน</Tag>
+                    },
+                  },
+                ]}
+              />
+            </Card>
+          </Col>
+        </Row>
+      </Card>
+
+      {/* ── 3. MS Forms Status Section ─────────────────────────────────── */}
       <Card
         style={{ borderRadius: 10, marginTop: 16 }}
         title={
@@ -769,74 +1214,21 @@ export default function Dashboard() {
                 />
               </Col>
             )}
-            <>
+            {webhookStatus.codes_generated && (
               <Col xs={24}>
-                <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
-                  <KeyOutlined /> ข้อมูลกลุ่มนักศึกษา (ส่งฟอร์มแล้ว)
-                </Text>
-                <Table
-                  dataSource={webhookStatus.submitted_groups}
-                  rowKey="group_id"
-                  size="small"
-                  pagination={{ pageSize: 15 }}
-                  style={{ borderRadius: 8 }}
-                  rowClassName={() => 'group-row'}
-                  columns={[
-                    { title: 'กลุ่มที่', key: 'index', width: 60, render: (_, __, i) => i + 1 },
-                    { title: 'Code', dataIndex: 'anonymous_code', key: 'code', width: 80,
-                      render: (v: string) => v ? <Tag color="blue">{v}</Tag> : <Text type="secondary">รอสร้าง</Text> },
-                    { title: 'ตัวแทนกลุ่ม', dataIndex: 'representative', key: 'rep', width: 120,
-                      render: v => v || '-' },
-                    { title: 'จำนวน (คน)', dataIndex: 'member_count', key: 'mc', width: 90, align: 'center' },
-                    { title: 'รายชื่อสมาชิก (รหัส - ชื่อ)', dataIndex: 'members', key: 'members',
-                      render: (members: any[]) => (
-                        <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          {members?.map((m, idx) => (
-                            <div
-                              key={m.student_id}
-                              style={{
-                                padding: '4px 0',
-                                borderBottom: idx === members.length - 1 ? 'none' : '1px solid #f0f0f0',
-                                display: 'flex',
-                                gap: 8
-                              }}
-                            >
-                              <Text strong style={{ width: 100, fontSize: 12 }}>{m.student_id}</Text>
-                              <Text style={{ fontSize: 12 }}>{m.full_name || '-'}</Text>
-                            </div>
-                          ))}
-                        </div>
-                      )
-                    },
-                  ]}
+                <Alert
+                  type="success"
+                  showIcon
+                  icon={<CheckCircleOutlined />}
+                  message="สร้าง Anonymous Code สำหรับกลุ่มนักศึกษาและอาจารย์เรียบร้อยแล้ว"
                 />
               </Col>
-            </>
-            {webhookStatus.codes_generated && (
-              <>
-                <Col xs={24} sm={12}>
-                  <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 6 }}>
-                    <KeyOutlined /> Anonymous Code — อาจารย์
-                  </Text>
-                  <Table
-                    dataSource={webhookStatus.prof_codes}
-                    rowKey="prof_id"
-                    size="small"
-                    pagination={false}
-                    style={{ borderRadius: 8 }}
-                    columns={[
-                      { title: 'Code', dataIndex: 'anonymous_code', key: 'code', width: 80,
-                        render: (v: string) => <Tag color="purple">{v}</Tag> },
-                      { title: 'ชื่ออาจารย์', dataIndex: 'full_name', key: 'name' },
-                    ]}
-                  />
-                </Col>
-              </>
             )}
           </Row>
         )}
       </Card>
       
+      {/* Modal เปิดรอบรับฟอร์ม */}
       <Modal
         title="เปิดรอบรับฟอร์มใหม่"
         open={activateModalOpen}

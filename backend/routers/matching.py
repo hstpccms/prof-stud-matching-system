@@ -66,27 +66,38 @@ def start_run(
 
 @router.get("/runs", response_model=List[schemas.MatchingRunOut])
 def list_runs(
+    program: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
-    return db.query(models.MatchingRun).order_by(models.MatchingRun.run_at.desc()).all()
+    query = db.query(models.MatchingRun)
+    if program:
+        query = query.filter_by(program=program)
+    return query.order_by(models.MatchingRun.run_at.desc()).all()
 
 
 @router.get("/runs/recent")
 def recent_runs(
+    program: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
     """Return the 3 most recent matching runs with group totals for ratio display."""
+    query = db.query(models.MatchingRun)
+    if program:
+        query = query.filter_by(program=program)
     runs = (
-        db.query(models.MatchingRun)
+        query
         .order_by(models.MatchingRun.run_at.desc())
         .limit(3)
         .all()
     )
     result = []
     for run in runs:
-        num_groups = db.query(models.Group).filter_by(session_id=run.session_id, program=run.program).count()
+        q_g = db.query(models.Group).filter_by(session_id=run.session_id)
+        if run.program:
+            q_g = q_g.filter_by(program=run.program)
+        num_groups = q_g.count()
         result.append({
             "id": run.id,
             "run_at": run.run_at,
@@ -138,7 +149,10 @@ def get_professor_summary(
     if not run:
         raise HTTPException(404, "ไม่พบ Run")
 
-    professors = db.query(models.Professor).filter_by(session_id=run.session_id).all()
+    q_prof = db.query(models.Professor).filter_by(session_id=run.session_id)
+    if run.program:
+        q_prof = q_prof.filter_by(program=run.program)
+    professors = q_prof.all()
     results_query = db.query(models.MatchingResult).filter_by(run_id=run_id)
     if mode in ("student", "professor"):
         results_query = results_query.filter(models.MatchingResult.mode == mode)

@@ -186,14 +186,70 @@ def webhook_status(
 
     submitted_groups = [
         schemas.SubmittedGroupOut(
-            group_id=g.id,
+            group_id=g.group_id or g.anonymous_code or g.id,
             anonymous_code=g.anonymous_code,
             representative=g.representative,
-            member_count=g.member_count or 0,
+            member_count=g.member_count or (len(g.members) if g.members else 0),
             members=[schemas.StudentMemberOut.model_validate(m) for m in g.members]
         )
         for g in groups
     ]
+
+    # ── Student tracking list ──────────────────────────────────────────────────
+    query_members = db.query(models.StudentMember).filter_by(session_id=sid)
+    if program:
+        query_members = query_members.filter_by(program=program)
+    student_members = query_members.all()
+
+    group_map = {g.id: (g.group_id or g.anonymous_code or f"กลุ่ม #{i+1}") for i, g in enumerate(groups)}
+
+    students_tracking = []
+    if student_members:
+        for m in student_members:
+            students_tracking.append(
+                schemas.StudentTrackingOut(
+                    id=m.id,
+                    student_id=m.student_id,
+                    full_name=m.full_name or "—",
+                    group_id=group_map.get(m.group_id, "—") if m.group_id else "—",
+                    form_submitted=True,
+                    status="ส่งแล้ว",
+                )
+            )
+    else:
+        for i, g in enumerate(groups, start=1):
+            if g.representative:
+                students_tracking.append(
+                    schemas.StudentTrackingOut(
+                        id=g.id,
+                        student_id=g.group_id or g.anonymous_code or f"STD-{g.id}",
+                        full_name=g.representative,
+                        group_id=g.group_id or g.anonymous_code or f"กลุ่ม #{i}",
+                        form_submitted=True,
+                        status="ส่งแล้ว",
+                    )
+                )
+
+    # ── Submitted professors with Form 2 & Form 4 status ──────────────────────
+    submitted_professors = []
+    for i, p in enumerate(professors, start=1):
+        p_code = p.anonymous_code or p.prof_id or ""
+        scored_count = len(scores_by_prof.get(p_code, set())) if p_code else 0
+        total_groups = len(group_codes_list)
+        form4_done = total_groups > 0 and scored_count >= total_groups
+        submitted_professors.append(
+            schemas.SubmittedProfOut(
+                prof_id=p.prof_id or p.anonymous_code or f"P{i:03d}",
+                anonymous_code=p.anonymous_code,
+                full_name=p.full_name or "—",
+                expertise=p.expertise or "—",
+                quota=p.quota or 0,
+                form2_submitted=True,
+                form4_submitted=form4_done,
+                scores_count=scored_count,
+                total_groups_to_score=total_groups,
+            )
+        )
 
     return schemas.WebhookStatusOut(
         session_id=sid,
@@ -214,6 +270,8 @@ def webhook_status(
         group_codes=group_codes_out,
         prof_codes=prof_codes_out,
         submitted_groups=submitted_groups,
+        submitted_professors=submitted_professors,
+        students=students_tracking,
     )
 
 

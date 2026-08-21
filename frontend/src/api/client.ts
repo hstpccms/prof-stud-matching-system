@@ -33,15 +33,16 @@ export const getMe = () => api.get('/auth/me')
 export const getDashboard = (program?: string) => api.get('/data/sessions/latest/dashboard', { params: program ? { program } : undefined })
 
 // ── Data ──────────────────────────────────────────────────────────────────────
-export const uploadFile = (file: File) => {
+export const uploadFile = (file: File, program?: string) => {
   const form = new FormData()
   form.append('file', file)
+  if (program) form.append('program', program)
   return api.post('/data/upload', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
   })
 }
 
-export const listSessions = () => api.get('/data/sessions')
+export const listSessions = (program?: string) => api.get('/data/sessions', { params: program ? { program } : undefined })
 export const getGroups = (sid: number, program?: string) => api.get(`/data/sessions/${sid}/groups`, { params: program ? { program } : undefined })
 export const getProfessors = (sid: number, program?: string) => api.get(`/data/sessions/${sid}/professors`, { params: program ? { program } : undefined })
 export const getRankings = (sid: number, program?: string) => api.get(`/data/sessions/${sid}/rankings`, { params: program ? { program } : undefined })
@@ -52,8 +53,8 @@ export const validateSession = (sid: number, program?: string) => api.post(`/dat
 export const runMatching = (session_id: number, seed: number, program: string) =>
   api.post('/matching/run', { session_id, seed, program })
 
-export const listRuns = () => api.get('/matching/runs')
-export const getRecentRuns = () => api.get('/matching/runs/recent')
+export const listRuns = (program?: string) => api.get('/matching/runs', { params: program ? { program } : undefined })
+export const getRecentRuns = (program?: string) => api.get('/matching/runs/recent', { params: program ? { program } : undefined })
 export const getRun = (runId: number) => api.get(`/matching/runs/${runId}`)
 export const getResults = (runId: number, mode?: 'student' | 'professor') =>
   api.get(`/matching/runs/${runId}/results`, { params: mode ? { mode } : undefined })
@@ -63,8 +64,8 @@ export const getStats = (runId: number, mode?: 'student' | 'professor') =>
   api.get(`/matching/runs/${runId}/stats`, { params: mode ? { mode } : undefined })
 
 // ── Download ──────────────────────────────────────────────────────────────────
-export const downloadUpload = (sid: number) =>
-  `/api/download/upload/${sid}`
+export const downloadUpload = (sid: number, program?: string) =>
+  `/api/download/upload/${sid}${program ? `?program=${encodeURIComponent(program)}` : ''}`
 
 export const downloadResult = (runId: number) =>
   `/api/download/result/${runId}`

@@ -33,9 +33,16 @@ export default function DataManagement() {
   // suppress unused ref warning — kept for future direct file input use
 
   const fetchSessions = async () => {
-    const res = await listSessions()
+    const res = await listSessions(program)
     setSessions(res.data)
-    if (res.data.length > 0 && !selectedSid) setSelectedSid(res.data[0].id)
+    if (res.data.length > 0) {
+      if (!selectedSid || !res.data.some((s: any) => s.id === selectedSid)) {
+        setSelectedSid(res.data[0].id)
+      }
+    } else {
+      setSelectedSid(null)
+      setTableData([])
+    }
   }
 
   const fetchTable = async (sid: number, t: TabType) => {
@@ -52,7 +59,7 @@ export default function DataManagement() {
     } finally { setLoadingTable(false) }
   }
 
-  useEffect(() => { fetchSessions() }, [])
+  useEffect(() => { fetchSessions() }, [program])
   useEffect(() => {
     if (selectedSid) { setValidationResult(null); fetchTable(selectedSid, tab) }
   }, [selectedSid, tab, program])
@@ -61,8 +68,8 @@ export default function DataManagement() {
     if (!file.name.endsWith('.xlsx')) { message.error('กรุณาเลือกไฟล์ .xlsx'); return false }
     setUploading(true)
     try {
-      const res = await uploadFile(file)
-      message.success(`อัปโหลด "${file.name}" สำเร็จ`)
+      const res = await uploadFile(file, program)
+      message.success(`อัปโหลด "${file.name}" สำหรับหลักสูตร ${program} สำเร็จ`)
       await fetchSessions(); setSelectedSid(res.data.id)
     } catch (err: any) {
       message.error(err.response?.data?.detail || 'อัปโหลดล้มเหลว')
@@ -74,7 +81,7 @@ export default function DataManagement() {
     if (!selectedSid) return
     setValidating(true)
     try {
-      const res = await validateSession(selectedSid)
+      const res = await validateSession(selectedSid, program)
       setValidationResult(res.data)
       if (res.data.passed) message.success('ผ่านการตรวจสอบแล้ว')
       else message.error(`พบ ${res.data.errors.length} ข้อผิดพลาด`)
@@ -87,63 +94,136 @@ export default function DataManagement() {
 
   /* ── Table columns ── */
   const groupColumns: ColumnsType<any> = [
-    { title: 'GroupID', dataIndex: 'group_id', key: 'group_id', width: 80, render: v => <Text strong>{v}</Text> },
-    { title: 'รหัส', dataIndex: 'anonymous_code', key: 'anonymous_code', width: 80, render: v => <Tag>{v}</Tag> },
-    { title: 'ตัวแทน', dataIndex: 'representative', key: 'representative', width: 120 },
-    { title: 'สมาชิก', dataIndex: 'member_count', key: 'member_count', width: 70, align: 'center' },
-    { title: 'รายชื่อสมาชิก (รหัส - ชื่อ)', dataIndex: 'members', key: 'members', width: 250,
-      render: (members: any[]) => {
-        if (!members || members.length === 0) return <Text type="secondary">—</Text>
-        return (
-          <Flex vertical>
-            {members.map((m, idx) => (
-              <div
-                key={m.student_id}
-                style={{
-                  padding: '4px 0',
-                  borderBottom: idx === members.length - 1 ? 'none' : '1px solid #f0f0f0',
-                  display: 'flex',
-                  gap: 8
-                }}
-              >
-                <Text strong style={{ width: 90, fontSize: 12 }}>{m.student_id}</Text>
-                <Text style={{ fontSize: 12 }}>{m.full_name || '-'}</Text>
-              </div>
-            ))}
-          </Flex>
-        )
-      }
+    {
+      title: 'GroupID',
+      key: 'group_id',
+      width: 90,
+      align: 'center',
+      render: (_, r) => <Text strong>{r.group_id || r.anonymous_code || '-'}</Text>,
     },
     {
-      title: 'หัวข้อสนใจ', dataIndex: 'topic_interest', key: 'topic_interest',
-      render: v => {
-        if (!v) return '—'
-        try {
-          const topics = JSON.parse(v)
+      title: 'จำนวนสมาชิกกลุ่ม',
+      key: 'member_count',
+      width: 140,
+      align: 'center',
+      render: (_, r) => `${r.member_count ?? (r.members?.length || 0)} คน`,
+    },
+    {
+      title: 'รายชื่อสมาชิก (รหัส + ชื่อ-นามสกุล)',
+      dataIndex: 'members',
+      key: 'members',
+      width: 250,
+      render: (members: any[], r: any) => {
+        if (members && members.length > 0) {
           return (
-            <Flex vertical gap={6}>
+            <Flex vertical gap={4}>
+              {members.map((m, idx) => (
+                <div
+                  key={m.student_id || idx}
+                  style={{
+                    padding: '2px 0',
+                    borderBottom: idx === members.length - 1 ? 'none' : '1px solid #f0f0f0',
+                    display: 'flex',
+                    gap: 8,
+                  }}
+                >
+                  <Text strong style={{ width: 85, fontSize: 12 }}>{m.student_id}</Text>
+                  <Text style={{ fontSize: 12 }}>{m.full_name || '-'}</Text>
+                </div>
+              ))}
+            </Flex>
+          )
+        }
+        if (r.representative) {
+          return <Text style={{ fontSize: 12 }}>{r.representative}</Text>
+        }
+        return <Text type="secondary">—</Text>
+      },
+    },
+    {
+      title: 'หัวข้อที่สนใจ',
+      key: 'topic_interest_title',
+      width: 260,
+      render: (_, r) => {
+        if (!r.topic_interest) return <Text type="secondary">—</Text>
+        try {
+          const topics = typeof r.topic_interest === 'string' ? JSON.parse(r.topic_interest) : r.topic_interest
+          if (!Array.isArray(topics) || topics.length === 0) return <Text type="secondary">—</Text>
+          return (
+            <Flex vertical gap={4}>
               {topics.map((t: any, idx: number) => {
-                if (typeof t === 'string') return <div key={idx} style={{ fontSize: 13 }}>• {t}</div>
+                const title = typeof t === 'string' ? t : t.title || '—'
                 return (
-                  <div key={idx} style={{ paddingBottom: idx === topics.length - 1 ? 0 : 4 }}>
-                    <Text strong style={{ fontSize: 13 }}>• {t.title}</Text>
-                    {t.detail && <div style={{ fontSize: 12, color: '#8c8c8c', paddingLeft: 12, marginTop: 2 }}>{t.detail}</div>}
+                  <div key={idx} style={{ fontSize: 12 }}>
+                    <Text strong>• {title}</Text>
                   </div>
                 )
               })}
             </Flex>
           )
-        } catch { return String(v) }
+        } catch {
+          return <Text style={{ fontSize: 12 }}>{String(r.topic_interest)}</Text>
+        }
+      },
+    },
+    {
+      title: 'รายละเอียดของหัวข้อ',
+      key: 'topic_interest_detail',
+      render: (_, r) => {
+        if (!r.topic_interest) return <Text type="secondary">—</Text>
+        try {
+          const topics = typeof r.topic_interest === 'string' ? JSON.parse(r.topic_interest) : r.topic_interest
+          if (!Array.isArray(topics) || topics.length === 0) return <Text type="secondary">—</Text>
+          const hasAnyDetail = topics.some((t: any) => typeof t === 'object' && t?.detail)
+          if (!hasAnyDetail) return <Text type="secondary">—</Text>
+          return (
+            <Flex vertical gap={4}>
+              {topics.map((t: any, idx: number) => {
+                const detail = typeof t === 'object' && t?.detail ? t.detail : '—'
+                return (
+                  <div key={idx} style={{ fontSize: 12 }}>
+                    <Text type="secondary">• {detail}</Text>
+                  </div>
+                )
+              })}
+            </Flex>
+          )
+        } catch {
+          return <Text type="secondary">—</Text>
+        }
       },
     },
   ]
 
   const profColumns: ColumnsType<any> = [
-    { title: 'ProfID', dataIndex: 'prof_id', key: 'prof_id', render: v => <Text type="secondary">{v}</Text> },
-    { title: 'รหัส', dataIndex: 'anonymous_code', key: 'anonymous_code', render: v => <Tag>{v}</Tag> },
-    { title: 'ชื่อ-นามสกุล', dataIndex: 'full_name', key: 'full_name', render: v => <Text strong>{v}</Text> },
-    { title: 'ความเชี่ยวชาญ', dataIndex: 'expertise', key: 'expertise', ellipsis: true },
-    { title: 'Quota', dataIndex: 'quota', key: 'quota', align: 'center', render: v => <Text style={{ color: '#1677ff', fontWeight: 600 }}>{v}</Text> },
+    {
+      title: 'ProfID',
+      key: 'prof_id',
+      width: 100,
+      align: 'center',
+      render: (_, r) => <Text strong>{r.prof_id || r.anonymous_code || '-'}</Text>,
+    },
+    {
+      title: 'รายชื่ออาจารย์ (ชื่อ-นามสกุล)',
+      dataIndex: 'full_name',
+      key: 'full_name',
+      width: 220,
+      render: v => <Text strong>{v || '—'}</Text>,
+    },
+    {
+      title: 'ความเชี่ยวชาญ',
+      dataIndex: 'expertise',
+      key: 'expertise',
+      render: v => <Text style={{ fontSize: 13 }}>{v || '—'}</Text>,
+    },
+    {
+      title: 'โควต้าที่รับกลุ่มนักศึกษาได้',
+      dataIndex: 'quota',
+      key: 'quota',
+      width: 180,
+      align: 'center',
+      render: v => <Text strong style={{ color: '#1677ff', fontSize: 14 }}>{v ?? 0} กลุ่ม</Text>,
+    },
   ]
 
   const scoreColumns: ColumnsType<any> = [

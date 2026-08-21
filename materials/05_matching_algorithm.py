@@ -77,19 +77,28 @@ def load_data(path):
     ws = wb["Professor_Info"]
     quotas = {}
     for row in ws.iter_rows(min_row=2, values_only=True):
-        if row[1] is None or row[1] == "":
+        if not row or row[0] is None or str(row[0]).strip() == "":
             continue
-        code, quota = row[1], row[4]
+        # Support both 4-column [ProfID, FullName, Expertise, Quota]
+        # and 5-column [ProfID, AnonymousCode, FullName, Expertise, Quota]
+        if len(row) >= 5 and row[1] is not None and str(row[1]).strip().startswith("P"):
+            code = str(row[1]).strip()
+            quota = row[4]
+        else:
+            code = str(row[0]).strip()
+            quota = row[3] if len(row) >= 4 else row[-1]
         if code is None or quota is None:
             continue
         quotas[code] = int(quota)
 
     # Student_Rankings -> group -> {prof_code: rank}
     ws = wb["Student_Rankings"]
-    prof_codes = [c.value for c in ws[1][1:]]
+    prof_codes = [str(c.value).strip() for c in ws[1][1:] if c.value is not None]
     student_pref = {}
     for row in ws.iter_rows(min_row=2, values_only=True):
-        gcode = row[0]
+        if not row or row[0] is None:
+            continue
+        gcode = str(row[0]).strip()
         ranks = dict(zip(prof_codes, row[1:]))
         # sort professors by rank ascending (1 = most preferred) -> ordered list
         ordered = [p for p, _ in sorted(ranks.items(), key=lambda kv: kv[1])]
@@ -99,10 +108,12 @@ def load_data(path):
     ws = wb["Professor_Scores"]
     prof_scores = defaultdict(dict)
     for row in ws.iter_rows(min_row=2, values_only=True):
-        pcode, gcode, a, b, subscore, mainscore = row
-        if pcode is None:
+        if not row or row[0] is None:
             continue
-        prof_scores[pcode][gcode] = {
+        pcode, gcode, a, b, subscore, mainscore = row[:6]
+        pcode_str = str(pcode).strip()
+        gcode_str = str(gcode).strip()
+        prof_scores[pcode_str][gcode_str] = {
             "A": a, "B": b,
             "sub": float(subscore), "main": int(round(mainscore)),
         }

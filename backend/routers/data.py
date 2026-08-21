@@ -5,7 +5,7 @@ Upload Excel, preview data, validate
 import os
 import shutil
 from typing import List, Optional
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Query
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -23,6 +23,7 @@ router = APIRouter(prefix="/api/data", tags=["data"])
 @router.post("/upload", response_model=schemas.ImportSessionOut)
 async def upload_file(
     file: UploadFile = File(...),
+    program: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
@@ -34,7 +35,7 @@ async def upload_file(
     with open(dest, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
-    session_id, error = import_excel(dest, file.filename, db)
+    session_id, error = import_excel(dest, file.filename, db, program)
     if error:
         raise HTTPException(422, detail=error)
 
@@ -44,10 +45,19 @@ async def upload_file(
 
 @router.get("/sessions", response_model=List[schemas.ImportSessionOut])
 def list_sessions(
+    program: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
-    return db.query(models.ImportSession).order_by(models.ImportSession.uploaded_at.desc()).all()
+    query = db.query(models.ImportSession)
+    if program:
+        query = query.filter(
+            (models.ImportSession.groups.any(models.Group.program == program)) |
+            (models.ImportSession.professors.any(models.Professor.program == program)) |
+            (models.ImportSession.student_members.any(models.StudentMember.program == program)) |
+            (models.ImportSession.matching_runs.any(models.MatchingRun.program == program))
+        )
+    return query.order_by(models.ImportSession.uploaded_at.desc()).all()
 
 
 @router.get("/sessions/{session_id}/groups", response_model=List[schemas.GroupOut])
@@ -59,7 +69,9 @@ def get_groups(
 ):
     query = db.query(models.Group).filter_by(session_id=session_id)
     if program:
-        query = query.filter_by(program=program)
+        has_prog = db.query(models.Group).filter(models.Group.session_id == session_id, models.Group.program != None).count() > 0
+        if has_prog:
+            query = query.filter_by(program=program)
     return query.all()
 
 
@@ -72,7 +84,9 @@ def get_professors(
 ):
     query = db.query(models.Professor).filter_by(session_id=session_id)
     if program:
-        query = query.filter_by(program=program)
+        has_prog = db.query(models.Professor).filter(models.Professor.session_id == session_id, models.Professor.program != None).count() > 0
+        if has_prog:
+            query = query.filter_by(program=program)
     return query.all()
 
 
@@ -85,7 +99,9 @@ def get_rankings(
 ):
     query = db.query(models.StudentRanking).filter_by(session_id=session_id)
     if program:
-        query = query.filter_by(program=program)
+        has_prog = db.query(models.StudentRanking).filter(models.StudentRanking.session_id == session_id, models.StudentRanking.program != None).count() > 0
+        if has_prog:
+            query = query.filter_by(program=program)
     return query.all()
 
 
@@ -98,7 +114,9 @@ def get_scores(
 ):
     query = db.query(models.ProfessorScore).filter_by(session_id=session_id)
     if program:
-        query = query.filter_by(program=program)
+        has_prog = db.query(models.ProfessorScore).filter(models.ProfessorScore.session_id == session_id, models.ProfessorScore.program != None).count() > 0
+        if has_prog:
+            query = query.filter_by(program=program)
     return query.all()
 
 
@@ -157,10 +175,12 @@ def dashboard_stats(
     q_score = db.query(models.ProfessorScore).filter_by(session_id=sid)
     
     if program:
-        q_groups = q_groups.filter_by(program=program)
-        q_profs = q_profs.filter_by(program=program)
-        q_rank = q_rank.filter_by(program=program)
-        q_score = q_score.filter_by(program=program)
+        has_prog = db.query(models.Group).filter(models.Group.session_id == sid, models.Group.program != None).count() > 0
+        if has_prog:
+            q_groups = q_groups.filter_by(program=program)
+            q_profs = q_profs.filter_by(program=program)
+            q_rank = q_rank.filter_by(program=program)
+            q_score = q_score.filter_by(program=program)
 
     groups = q_groups.all()
     professors = q_profs.all()
@@ -195,9 +215,11 @@ def dashboard_stats(
     ]
 
     # ── Latest run ───────────────────────────────────────────────────────────
+    q_run = db.query(models.MatchingRun).filter_by(session_id=sid)
+    if program:
+        q_run = q_run.filter_by(program=program)
     latest_run = (
-        db.query(models.MatchingRun)
-        .filter_by(session_id=sid)
+        q_run
         .order_by(models.MatchingRun.run_at.desc())
         .first()
     )
@@ -206,6 +228,67 @@ def dashboard_stats(
     data_stale = bool(
         latest_run and latest_session.uploaded_at > latest_run.run_at
     )
+
+    # ── Groups summary ───────────────────────────────────────────────────────
+    group_map = {g.id: (g.group_id or g.anonymous_code or f"กลุ่ม #{i+1}") for i, g in enumerate(groups)}
+    submitted_groups = [
+        {
+            "group_id": g.group_id or g.anonymous_code or f"G{i+1:03d}",
+            "anonymous_code": g.anonymous_code,
+            "representative": g.representative,
+            "member_count": g.member_count or (len(g.members) if g.members else 0),
+            "members": [{"student_id": m.student_id, "full_name": m.full_name} for m in g.members] if g.members else []
+        }
+        for i, g in enumerate(groups)
+    ]
+
+    # ── Student tracking list ──────────────────────────────────────────────────
+    q_members = db.query(models.StudentMember).filter_by(session_id=sid)
+    if program:
+        q_members = q_members.filter_by(program=program)
+    student_members = q_members.all()
+
+    students_tracking = []
+    if student_members:
+        for m in student_members:
+            students_tracking.append({
+                "id": m.id,
+                "student_id": m.student_id,
+                "full_name": m.full_name or "—",
+                "group_id": group_map.get(m.group_id, "—") if m.group_id else "—",
+                "form_submitted": True,
+                "status": "ส่งแล้ว",
+            })
+    else:
+        for i, g in enumerate(groups, start=1):
+            if g.representative:
+                students_tracking.append({
+                    "id": g.id,
+                    "student_id": g.group_id or g.anonymous_code or f"STD-{g.id}",
+                    "full_name": g.representative,
+                    "group_id": g.group_id or g.anonymous_code or f"กลุ่ม #{i}",
+                    "form_submitted": True,
+                    "status": "ส่งแล้ว",
+                })
+
+    # ── Professors with Form 2 & Form 4 status ────────────────────────────────
+    submitted_professors = []
+    for i, p in enumerate(professors, start=1):
+        p_code = p.anonymous_code or p.prof_id or ""
+        scored_count = len(scores_by_prof.get(p_code, set())) if p_code else 0
+        total_groups_to_score = len(group_codes)
+        form4_done = total_groups_to_score > 0 and scored_count >= total_groups_to_score
+        submitted_professors.append({
+            "prof_id": p.prof_id or p.anonymous_code or f"P{i:03d}",
+            "anonymous_code": p.anonymous_code,
+            "full_name": p.full_name or "—",
+            "expertise": p.expertise or "—",
+            "quota": p.quota or 0,
+            "form2_submitted": True,
+            "form4_submitted": form4_done,
+            "scores_count": scored_count,
+            "total_groups_to_score": total_groups_to_score,
+        })
 
     return {
         "latest_session": {
@@ -242,4 +325,7 @@ def dashboard_stats(
             "log": latest_run.log,
             "session_id": latest_run.session_id,
         } if latest_run else None,
+        "groups": submitted_groups,
+        "professors": submitted_professors,
+        "students": students_tracking,
     }

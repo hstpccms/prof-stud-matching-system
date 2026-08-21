@@ -10,6 +10,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { listRuns, getResults, getProfSummary, getStats } from '../api/client'
 import api from '../api/client'
 import { useLocation } from 'react-router-dom'
+import { useProgram } from '../ProgramContext'
 
 const { Title, Text } = Typography
 
@@ -34,6 +35,7 @@ function rankColor(v: number | null): string {
 export default function Results() {
   const { message } = AntApp.useApp()
   const location = useLocation()
+  const { program } = useProgram()
   const [runs, setRuns] = useState<any[]>([])
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null)
   const [tab, setTab] = useState<Tab>('matching')
@@ -71,7 +73,7 @@ export default function Results() {
   }
 
   useEffect(() => {
-    listRuns().then(res => {
+    listRuns(program).then(res => {
       const ok = res.data.filter((r: any) => r.status === 'success')
       setRuns(ok)
       if (ok.length) {
@@ -79,9 +81,17 @@ export default function Results() {
         const targetId = (location.state as any)?.runId
         const targetExists = targetId && ok.some((r: any) => r.id === targetId)
         setSelectedRunId(targetExists ? targetId : ok[0].id)
+      } else {
+        setSelectedRunId(null)
+        setResultsStudent([])
+        setResultsProfessor([])
+        setProfSummaryStudent([])
+        setProfSummaryProfessor([])
+        setStatsStudent(null)
+        setStatsProfessor(null)
       }
     })
-  }, [])
+  }, [program, location.state])
 
   useEffect(() => {
     if (!selectedRunId) return
@@ -516,14 +526,14 @@ export default function Results() {
   if (!runs.length) {
     return (
       <div style={{ padding: 32 }}>
-        <Title level={4} style={{ marginBottom: 4 }}>ผลลัพธ์การจับคู่</Title>
+        <Title level={4} style={{ marginBottom: 4 }}>ผลลัพธ์การจับคู่ — {program}</Title>
         <Text type="secondary" style={{ display: 'block', marginBottom: 40 }}>
-          ยังไม่มีผลลัพธ์ — ไปรัน Matching ก่อน
+          ยังไม่มีผลลัพธ์ของหลักสูตร {program} — ไปรัน Matching ก่อน
         </Text>
         <Card>
           <Empty
             image={<BarChartOutlined style={{ fontSize: 48, color: '#bfbfbf' }} />}
-            description="ยังไม่มีการรัน Matching ที่สำเร็จ"
+            description={`ยังไม่มีการรัน Matching ที่สำเร็จสำหรับหลักสูตร ${program}`}
           />
         </Card>
       </div>

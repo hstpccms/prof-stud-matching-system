@@ -8,12 +8,14 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import { listRuns } from '../api/client'
 import api from '../api/client'
+import { useProgram } from '../ProgramContext'
 
 const { Title, Text } = Typography
 
 export default function HistoryPage() {
   const navigate = useNavigate()
   const { message } = AntApp.useApp()
+  const { program } = useProgram()
   const [runs, setRuns] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [downloadingId, setDownloadingId] = useState<number | null>(null)
@@ -39,8 +41,9 @@ export default function HistoryPage() {
   }
 
   useEffect(() => {
-    listRuns().then(r => setRuns(r.data)).finally(() => setLoading(false))
-  }, [])
+    setLoading(true)
+    listRuns(program).then(r => setRuns(r.data)).finally(() => setLoading(false))
+  }, [program])
 
   const statusTag = (s: string) => {
     if (s === 'success') return <Tag color="success" icon={<CheckCircleOutlined />}>สำเร็จ</Tag>

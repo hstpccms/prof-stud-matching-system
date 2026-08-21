@@ -1,5 +1,6 @@
 """
-FastAPI Application Entry Point
+Main FastAPI Application Entry Point
+Prof-Student Matching System Backend
 """
 import os
 from contextlib import asynccontextmanager

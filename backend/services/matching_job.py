@@ -21,76 +21,228 @@ RESULTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "resul
 
 
 def _export_input_excel(session_id: int, program: Optional[str], db: Session, tmp_path: str):
-    """Export DB data to Excel format that the algorithm expects.
-    If program is None, exports all data across all programs.
-    """
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    header_font = Font(bold=True, size=11, color="1F2937")
+    header_fill = PatternFill("solid", fgColor="E6F4FF")
+    thin_border = Border(
+        left=Side(style="thin", color="D1D5DB"),
+        right=Side(style="thin", color="D1D5DB"),
+        top=Side(style="thin", color="D1D5DB"),
+        bottom=Side(style="thin", color="D1D5DB")
+    )
+    align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    align_left = Alignment(horizontal="left", vertical="center", wrap_text=True)
+
+    def style_sheet_header(ws, col_count: int):
+        ws.row_dimensions[1].height = 28
+        for col in range(1, col_count + 1):
+            cell = ws.cell(row=1, column=col)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = align_center
+            cell.border = thin_border
+
+    def auto_fit_columns(ws, min_widths=None):
+        if min_widths is None:
+            min_widths = {}
+        for col in ws.columns:
+            col_letter = get_column_letter(col[0].column)
+            max_len = 0
+            for cell in col:
+                val = str(cell.value or '')
+                lines = val.split('\n')
+                for line in lines:
+                    max_len = max(max_len, len(line))
+            width = max(max_len + 4, min_widths.get(col_letter, 12))
+            ws.column_dimensions[col_letter].width = min(width, 50)
+
     q_groups = db.query(models.Group).filter_by(session_id=session_id)
     q_profs = db.query(models.Professor).filter_by(session_id=session_id)
     q_rankings = db.query(models.StudentRanking).filter_by(session_id=session_id)
     q_scores = db.query(models.ProfessorScore).filter_by(session_id=session_id)
 
     if program:
-        q_groups = q_groups.filter_by(program=program)
-        q_profs = q_profs.filter_by(program=program)
-        q_rankings = q_rankings.filter_by(program=program)
-        q_scores = q_scores.filter_by(program=program)
+        has_prog = db.query(models.Group).filter(models.Group.session_id == session_id, models.Group.program != None).count() > 0
+        if has_prog:
+            q_groups = q_groups.filter_by(program=program)
+            q_profs = q_profs.filter_by(program=program)
+            q_rankings = q_rankings.filter_by(program=program)
+            q_scores = q_scores.filter_by(program=program)
 
     groups = q_groups.all()
     professors = q_profs.all()
     rankings = q_rankings.all()
     scores = q_scores.all()
 
+    # Sort groups by GroupID ascending
+    def get_group_sort_key(g):
+        code = str(g.anonymous_code or g.group_id or g.id)
+        num_part = re.findall(r'\d+', code)
+        if num_part:
+            return (0, int(num_part[0]), code)
+        return (1, 0, code)
+
+    groups = sorted(groups, key=get_group_sort_key)
+
+    # Sort professors by ProfID ascending
+    def get_prof_sort_key(p):
+        code = str(p.anonymous_code or p.prof_id or p.id)
+        num_part = re.findall(r'\d+', code)
+        if num_part:
+            return (0, int(num_part[0]), code)
+        return (1, 0, code)
+
+    professors = sorted(professors, key=get_prof_sort_key)
+
     wb = openpyxl.Workbook()
 
-    # ── Group_Info ──────────────────────────────────────────────────────────
+    # ── 1. Group_Info ────────────────────────────────────────────────────────
     ws = wb.active
     ws.title = "Group_Info"
-    ws.append(["GroupID", "AnonymousCode", "Representative", "MemberCount", "Topic1", "Topic2", "Topic3"])
-    for g in groups:
+    group_headers = [
+        "GroupID",
+        "จำนวนสมาชิกกลุ่ม",
+        "รหัสนักศึกษาของสมาชิก",
+        "ชื่อ-นามสกุลของสมาชิก",
+        "หัวข้อที่สนใจ",
+        "รายละเอียดของหัวข้อ",
+    ]
+    ws.append(group_headers)
+    style_sheet_header(ws, len(group_headers))
+
+    for row_idx, g in enumerate(groups, start=2):
+        group_id_val = g.anonymous_code or g.group_id or f"G{row_idx-1:03d}"
+        
+        student_ids = []
+        student_names = []
+        if g.members:
+            for m in g.members:
+                if m.student_id:
+                    student_ids.append(str(m.student_id).strip())
+                if m.full_name:
+                    student_names.append(str(m.full_name).strip())
+        
+        ids_str = "\n".join(student_ids) if student_ids else (str(g.group_id or g.anonymous_code or "—"))
+        names_str = "\n".join(student_names) if student_names else (str(g.representative or "—"))
+        member_count = g.member_count or (len(g.members) if g.members else (len(student_ids) if student_ids else 1))
+
         topics = []
         try:
             topics = json.loads(g.topic_interest) if g.topic_interest else []
         except Exception:
             pass
-        while len(topics) < 3:
-            topics.append("")
-        # แปลง topic dict → string สำหรับเขียนลง Excel
-        topic_strs = []
-        for t in topics[:3]:
-            if isinstance(t, dict):
-                title = t.get("title", "")
-                detail = t.get("detail", "")
-                topic_strs.append(f"{title} — {detail}".strip(" —") if detail else title)
+        
+        topic_titles = []
+        topic_details = []
+        if isinstance(topics, list):
+            for i, t in enumerate(topics, start=1):
+                if isinstance(t, dict):
+                    title = t.get("title", "").strip()
+                    detail = t.get("detail", "").strip()
+                    if title:
+                        topic_titles.append(f"{i}. {title}")
+                    if detail and detail != "—":
+                        topic_details.append(f"{i}. {detail}")
+                    elif title:
+                        topic_details.append(f"{i}. —")
+                elif isinstance(t, str) and t.strip():
+                    topic_titles.append(f"{i}. {t.strip()}")
+                    topic_details.append(f"{i}. —")
+        
+        titles_str = "\n".join(topic_titles) if topic_titles else "—"
+        details_str = "\n".join(topic_details) if topic_details else "—"
+
+        row_data = [group_id_val, member_count, ids_str, names_str, titles_str, details_str]
+        ws.append(row_data)
+
+        for col_idx in range(1, len(row_data) + 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.border = thin_border
+            if col_idx in [1, 2]:
+                cell.alignment = align_center
             else:
-                topic_strs.append(str(t) if t else "")
-        while len(topic_strs) < 3:
-            topic_strs.append("")
-        ws.append([g.group_id, g.anonymous_code, g.representative, g.member_count] + topic_strs)
+                cell.alignment = align_left
 
-    # ── Professor_Info ──────────────────────────────────────────────────────
+    auto_fit_columns(ws, {"A": 12, "B": 18, "C": 22, "D": 25, "E": 35, "F": 45})
+
+    # ── 2. Professor_Info ────────────────────────────────────────────────────
     ws2 = wb.create_sheet("Professor_Info")
-    ws2.append(["ProfID", "AnonymousCode", "FullName", "Expertise", "Quota"])
-    for p in professors:
-        ws2.append([p.prof_id, p.anonymous_code, p.full_name, p.expertise, p.quota])
+    prof_headers = [
+        "ProfID",
+        "ชื่อ-นามสกุลของอาจารย์",
+        "ความเชี่ยวชาญ",
+        "โควต้ากลุ่ม",
+    ]
+    ws2.append(prof_headers)
+    style_sheet_header(ws2, len(prof_headers))
 
-    # ── Student_Rankings ────────────────────────────────────────────────────
+    for row_idx, p in enumerate(professors, start=2):
+        prof_id_val = p.anonymous_code or p.prof_id or f"P{row_idx-1:03d}"
+        row_data = [
+            prof_id_val,
+            p.full_name or "—",
+            p.expertise or "—",
+            p.quota if p.quota is not None else 0,
+        ]
+        ws2.append(row_data)
+
+        for col_idx in range(1, len(row_data) + 1):
+            cell = ws2.cell(row=row_idx, column=col_idx)
+            cell.border = thin_border
+            if col_idx in [1, 4]:
+                cell.alignment = align_center
+            else:
+                cell.alignment = align_left
+
+    auto_fit_columns(ws2, {"A": 12, "B": 25, "C": 40, "D": 15})
+
+    # ── 3. Student_Rankings (ไม่เปลี่ยนแปลงเนื้อหา) ────────────────────────
     ws3 = wb.create_sheet("Student_Rankings")
-    prof_codes = [p.anonymous_code for p in professors]
-    ws3.append(["GroupCode"] + prof_codes)
-    # Build lookup
+    prof_codes = [p.anonymous_code or p.prof_id for p in professors]
+    ranking_headers = ["GroupID"] + prof_codes
+    ws3.append(ranking_headers)
+    style_sheet_header(ws3, len(ranking_headers))
+
     rank_lookup = {}
     for r in rankings:
         rank_lookup[(r.group_code, r.prof_code)] = r.rank
-    for g in groups:
-        gcode = g.anonymous_code
-        row = [gcode] + [rank_lookup.get((gcode, pc)) for pc in prof_codes]
-        ws3.append(row)
 
-    # ── Professor_Scores ────────────────────────────────────────────────────
+    for row_idx, g in enumerate(groups, start=2):
+        gcode = g.anonymous_code or g.group_id
+        row_data = [gcode] + [rank_lookup.get((gcode, pc)) for pc in prof_codes]
+        ws3.append(row_data)
+        for col_idx in range(1, len(row_data) + 1):
+            cell = ws3.cell(row=row_idx, column=col_idx)
+            cell.border = thin_border
+            cell.alignment = align_center
+
+    auto_fit_columns(ws3, {"A": 14})
+
+    # ── 4. Professor_Scores (ไม่เปลี่ยนแปลงเนื้อหา) ────────────────────────
     ws4 = wb.create_sheet("Professor_Scores")
-    ws4.append(["ProfCode", "GroupCode", "Score_TopicFit_A", "Score_Clarity_B", "SubScore_Decimal", "MainScore_1to100"])
-    for s in scores:
-        ws4.append([s.prof_code, s.group_code, s.score_a, s.score_b, s.sub_score, s.main_score])
+    scores_headers = [
+        "ProfID",
+        "GroupID",
+        "Score_TopicFit_A",
+        "Score_Clarity_B",
+        "SubScore",
+        "MainScore",
+    ]
+    ws4.append(scores_headers)
+    style_sheet_header(ws4, len(scores_headers))
+
+    sorted_scores = sorted(scores, key=lambda s: (str(s.prof_code), str(s.group_code)))
+    for row_idx, s in enumerate(sorted_scores, start=2):
+        row_data = [s.prof_code, s.group_code, s.score_a, s.score_b, s.sub_score, s.main_score]
+        ws4.append(row_data)
+        for col_idx in range(1, len(row_data) + 1):
+            cell = ws4.cell(row=row_idx, column=col_idx)
+            cell.border = thin_border
+            cell.alignment = align_center
+
+    auto_fit_columns(ws4)
 
     wb.save(tmp_path)
 
