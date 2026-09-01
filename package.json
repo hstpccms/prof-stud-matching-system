@@ -1,0 +1,13 @@
+{
+  "name": "prof-stud-matching-system",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:frontend": "cd frontend && bunx --bun vite",
+    "dev:backend": "cd backend && python3 -m uvicorn main:app --reload --port 8000",
+    "dev": "concurrently \"bun run dev:backend\" \"bun run dev:frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
