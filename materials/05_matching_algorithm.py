@@ -13,16 +13,18 @@ Gale-Shapley ทั้ง 2 แบบ โดยฝั่งอาจารย์
 "ฝั่งไหนเสนอ ฝั่งนั้นได้เปรียบ" (Roth, 1982) — สคริปต์นี้จึงรันทั้งคู่แล้วสรุปผล
 เปรียบเทียบให้แอดมินนำไปเสนอที่ประชุมคณะเพื่อตัดสินใจเลือกแบบที่เหมาะกับนโยบาย
 
-ขั้นตอน tie-break ของฝั่งอาจารย์ (ตามนโยบายที่ตกลงกันไว้ล่าสุด) ใช้เพื่อแปลง
-Main Score (1-100) ให้กลายเป็น "Strict Preference List" ก่อนป้อนเข้า Algorithm
-มาตรฐาน — ใช้ Preference List เดียวกันนี้กับทั้งสองแบบ (Tie-break ไม่ได้ขึ้นกับ
-ว่าใครเป็นฝั่งเสนอ) วิธีนี้ให้ผลลัพธ์เทียบเท่ากับการรัน Extended Gale-Shapley
-สำหรับ One-sided Ties (Irving) และยัง Audit ได้ทุกขั้นตอน:
+ขั้นตอน tie-break ของฝั่งอาจารย์ ใช้เพื่อแปลง SubScore ให้กลายเป็น "Strict
+Preference List" ก่อนป้อนเข้า Algorithm มาตรฐาน — ใช้ Preference List เดียวกันนี้
+กับทั้งสองแบบ (Tie-break ไม่ได้ขึ้นกับว่าใครเป็นฝั่งเสนอ) วิธีนี้ให้ผลลัพธ์เทียบเท่า
+การรัน Extended Gale-Shapley สำหรับ One-sided Ties (Irving) และยัง Audit ได้ทุกขั้นตอน:
 
-    1) Main Score (1-100, ปัดเศษจาก 0.5A+0.5B) — มากไปน้อย
-    2) SubScore แบบ decimal (ไม่ปัดเศษ)         — มากไปน้อย
-    3) อันดับที่กลุ่มนั้น Rank อาจารย์ท่านนี้ไว้   — น้อยไปมาก (rank 1 ดีที่สุด)
-    4) Seeded Random (บันทึก seed ไว้ตรวจสอบย้อนหลังได้)
+    1) SubScore แบบ decimal (0.5A+0.5B, ไม่ปัดเศษ) — มากไปน้อย
+    2) อันดับที่กลุ่มนั้น Rank อาจารย์ท่านนี้ไว้     — น้อยไปมาก (rank 1 ดีที่สุด)
+    3) Seeded Random (บันทึก seed ไว้ตรวจสอบย้อนหลังได้)
+
+หมายเหตุ: Main Score = floor(SubScore) เก็บไว้แสดงผล/รายงานเท่านั้น ไม่ใช้เป็นชั้น
+จัดเรียง — เพราะการเรียงด้วย SubScore decimal เป็นเวอร์ชันละเอียดกว่าของ Main Score
+อยู่แล้ว (ลำดับหลักไม่เปลี่ยน แต่แยกคู่ที่ Main เท่ากันได้ จึงลดการพึ่ง Seeded Random)
 
 เงื่อนไขที่ต้อง Enforce ก่อนรัน (ตามที่ตกลงกันไว้):
     - ฝั่งนักศึกษาต้อง Rank ครบทุกคน (Complete Strict List) ห้ามเว้น/ซ้ำ
@@ -138,11 +140,13 @@ def build_prof_preferences(profs, groups, prof_scores, student_pref, seed):
             rank_by_group = student_pref[g]["rank_of"][p]  # lower = more preferred by group
             scored.append((g, s["main"], s["sub"], rank_by_group))
 
-        # detect ties at (main, sub, rank_by_group) level -> need random tiebreak
+        # detect ties at (sub, rank_by_group) level -> need random tiebreak
+        # (ไม่ใช้ main เป็นชั้นแยกแล้ว เพราะ main = floor(sub) การเรียงด้วย sub decimal
+        #  เป็นเวอร์ชันละเอียดกว่าของ main อยู่แล้ว — main เก็บไว้แค่แสดงผล/รายงาน)
         random_keys = {}
         seen_keys = defaultdict(list)
         for g, main, sub, rbg in scored:
-            key = (main, round(sub, 6), rbg)
+            key = (round(sub, 6), rbg)
             seen_keys[key].append(g)
         for key, gs in seen_keys.items():
             if len(gs) > 1:
@@ -152,14 +156,14 @@ def build_prof_preferences(profs, groups, prof_scores, student_pref, seed):
                     random_keys[g] = i
                 tie_log.append({
                     "prof": p, "groups": ",".join(gs),
-                    "main": key[0], "sub": key[1], "rank_by_group": key[2],
+                    "sub": key[0], "rank_by_group": key[1],
                     "resolved_order": ",".join(shuffled),
                 })
             else:
                 random_keys[gs[0]] = 0
 
-        # Sort: main desc, sub desc, rank_by_group asc, then random_key asc
-        scored.sort(key=lambda t: (-t[1], -t[2], t[3], random_keys[t[0]]))
+        # Sort: sub desc, rank_by_group asc, then seeded random_key asc
+        scored.sort(key=lambda t: (-t[2], t[3], random_keys[t[0]]))
         prof_pref[p] = [g for g, *_ in scored]
 
     return prof_pref, tie_log
@@ -309,13 +313,13 @@ def write_mode_sheets(wb, label, groups, profs, quotas, student_pref, prof_score
 
 def write_tie_log_sheet(wb, tie_log):
     ws = wb.create_sheet("TieBreak_Log")
-    headers = ["ProfCode", "GroupsTied", "MainScore", "SubScore", "RankByGroup", "ResolvedOrder(bestFirst)"]
+    headers = ["ProfCode", "GroupsTied", "SubScore", "RankByGroup", "ResolvedOrder(bestFirst)"]
     ws.append(headers)
     style_header(ws, 1, len(headers))
     for entry in tie_log:
-        ws.append([entry["prof"], entry["groups"], entry["main"], entry["sub"],
+        ws.append([entry["prof"], entry["groups"], entry["sub"],
                    entry["rank_by_group"], entry["resolved_order"]])
-    autosize(ws, [10, 24, 12, 12, 14, 30])
+    autosize(ws, [10, 24, 12, 14, 30])
     if not tie_log:
         ws.append(["-", "ไม่มี Tie ที่ต้องใช้ Seeded Random ในรอบนี้", "", "", "", ""])
     note_note = "หมายเหตุ: Tie-break policy ใช้ชุดเดียวกันทั้ง Student-Proposing และ Professor-Proposing (ไม่ขึ้นกับฝั่งที่เสนอ)"

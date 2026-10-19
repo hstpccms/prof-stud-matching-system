@@ -1,14 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import {
   Card, Select, Tabs, Table, Tag, Typography,
-  Flex, Row, Col, Button, Empty, Badge, Tooltip, Switch, App as AntApp,
+  Flex, Row, Col, Empty, Badge, Tooltip, Switch,
 } from 'antd'
 import {
-  BarChartOutlined, DownloadOutlined, SwapOutlined,
+  BarChartOutlined, SwapOutlined, PartitionOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { listRuns, getResults, getProfSummary, getStats } from '../api/client'
-import api from '../api/client'
 import { useLocation } from 'react-router-dom'
 import { useProgram } from '../ProgramContext'
 
@@ -33,7 +32,6 @@ function rankColor(v: number | null): string {
 }
 
 export default function Results() {
-  const { message } = AntApp.useApp()
   const location = useLocation()
   const { program } = useProgram()
   const [runs, setRuns] = useState<any[]>([])
@@ -47,30 +45,9 @@ export default function Results() {
   const [statsStudent, setStatsStudent] = useState<any>(null)
   const [statsProfessor, setStatsProfessor] = useState<any>(null)
   const [loading, setLoading] = useState(false)
-  const [downloadingRun, setDownloadingRun] = useState(false)
-  // Toggle states for comparison table
+  // Toggle states — ใช้ร่วมกันทั้งแท็บ Final Matching และ Professor Summary
   const [showDiffOnly, setShowDiffOnly] = useState(false)
   const [sortByImpact, setSortByImpact] = useState(false)
-
-  const triggerDownload = async (url: string, filename: string) => {
-    try {
-      const res = await api.get(url, { responseType: 'blob' })
-      const blob = new Blob([res.data], { type: (res.headers['content-type'] as string) || 'application/octet-stream' })
-      const blobUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = blobUrl
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(blobUrl)
-    } catch (err: any) {
-      const status = err?.response?.status
-      if (status === 401) message.error('Session หมดอายุ กรุณา Login ใหม่')
-      else if (status === 404) message.error('ไม่พบไฟล์บนเซิร์ฟเวอร์')
-      else message.error(`ดาวน์โหลดไม่สำเร็จ (${status ?? 'network error'})`)
-    }
-  }
 
   useEffect(() => {
     listRuns(program).then(res => {
@@ -158,6 +135,82 @@ export default function Results() {
     return rows
   }, [compRows, showDiffOnly, sortByImpact])
 
+  // ── map รหัสอาจารย์ -> ชื่อ (แทน ProfID ด้วยชื่อทั้งหน้า) ──
+  const profNameMap = useMemo(() => {
+    const m: Record<string, string> = {}
+    profSummaryStudent.concat(profSummaryProfessor).forEach((p: any) => {
+      if (p.prof_code) m[p.prof_code] = p.full_name || p.prof_code
+    })
+    return m
+  }, [profSummaryStudent, profSummaryProfessor])
+  const profName = (code: string | null) => (code ? (profNameMap[code] || code) : code)
+  const replaceProfCodes = (text: string) => {
+    let t = text
+    for (const [code, name] of Object.entries(profNameMap)) {
+      t = t.replace(new RegExp('\\b' + code + '\\b', 'g'), name)
+    }
+    return t
+  }
+
+  // ── per-อาจารย์: ต่างกันระหว่าง 2 โหมดไหม + impact (จำนวนกลุ่มที่เปลี่ยน) ──
+  const profDiffMap = useMemo(() => {
+    const mapP = new Map(profSummaryProfessor.map((p: any) => [p.prof_code, p]))
+    const res = new Map<string, { diff: boolean; impact: number }>()
+    profSummaryStudent.forEach((s: any) => {
+      const p: any = mapP.get(s.prof_code)
+      const sSet = new Set<string>(s.groups_assigned || [])
+      const pSet = new Set<string>(p?.groups_assigned || [])
+      let sym = 0
+      sSet.forEach(g => { if (!pSet.has(g)) sym++ })
+      pSet.forEach(g => { if (!sSet.has(g)) sym++ })
+      res.set(s.prof_code, { diff: sym > 0, impact: sym })
+    })
+    return res
+  }, [profSummaryStudent, profSummaryProfessor])
+  const profNumDiff = useMemo(
+    () => Array.from(profDiffMap.values()).filter(v => v.diff).length,
+    [profDiffMap],
+  )
+  const applyProfFilter = (rows: any[]) => {
+    let out = showDiffOnly ? rows.filter(r => profDiffMap.get(r.prof_code)?.diff) : [...rows]
+    if (sortByImpact) {
+      out = out.slice().sort((a, b) => {
+        const ia = profDiffMap.get(a.prof_code)?.impact ?? 0
+        const ib = profDiffMap.get(b.prof_code)?.impact ?? 0
+        if (ia === 0 && ib === 0) return 0
+        if (ia === 0) return 1
+        if (ib === 0) return -1
+        return ib - ia
+      })
+    }
+    return out
+  }
+
+  // ── แถบ toggle + legend ที่ใช้ร่วมกันทั้ง 2 แท็บ ──
+  const filterBar = (diffCount: number, unit: string) => (
+    <Flex align="center" justify="space-between" wrap="wrap" gap={8} style={{ marginBottom: 12 }}>
+      <Flex align="center" gap={16}>
+        <Badge color="#1677ff" text={<Text style={{ fontSize: 12 }}>Student-Proposing</Text>} />
+        <Badge color="#722ed1" text={<Text style={{ fontSize: 12 }}>Professor-Proposing</Text>} />
+        {diffCount > 0 && (
+          <Text type="warning" style={{ fontSize: 12 }}>
+            ⚠ {diffCount} {unit}ได้ผลต่างกันระหว่างสองโหมด
+          </Text>
+        )}
+      </Flex>
+      <Flex align="center" gap={16}>
+        <Flex align="center" gap={6}>
+          <Switch size="small" checked={showDiffOnly} onChange={setShowDiffOnly} />
+          <Text style={{ fontSize: 12, userSelect: 'none' }}>แสดงเฉพาะที่ต่างกัน</Text>
+        </Flex>
+        <Flex align="center" gap={6}>
+          <Switch size="small" checked={sortByImpact} onChange={setSortByImpact} />
+          <Text style={{ fontSize: 12, userSelect: 'none' }}>เรียงตาม Impact</Text>
+        </Flex>
+      </Flex>
+    </Flex>
+  )
+
   /*
    * NOTE: คอลัมน์ Score ถูกลบออกโดยตั้งใจ — ห้ามเพิ่มกลับ
    * Score เป็นคะแนนที่อาจารย์แต่ละคนให้ตาม Rubric ของตัวเอง
@@ -184,14 +237,14 @@ export default function Results() {
           title: 'อาจารย์', dataIndex: 's_prof', key: 's_prof',
           render: (v: string) => (!v || v === 'UNMATCHED')
             ? <Tag color="error">UNMATCHED</Tag>
-            : <Text strong style={{ color: '#1677ff' }}>{v}</Text>,
+            : <Text style={{ color: '#1677ff' }}>{profName(v)}</Text>,
         },
         {
           // คง 'อันดับ' ไว้ — เป็นข้อมูลที่เทียบข้ามได้จริง (มาจาก Ranking List เดียวกันของกลุ่มนั้น)
           title: 'อันดับ', dataIndex: 's_rank', key: 's_rank',
           align: 'center' as const, width: 70,
           render: (v: number) => v
-            ? <Text strong style={{ color: rankColor(v) }}>{v}</Text> : '—',
+            ? <Text style={{ color: rankColor(v) }}>{v}</Text> : '—',
         },
       ],
     },
@@ -211,14 +264,14 @@ export default function Results() {
           title: 'อาจารย์', dataIndex: 'p_prof', key: 'p_prof',
           render: (v: string) => (!v || v === 'UNMATCHED')
             ? <Tag color="error">UNMATCHED</Tag>
-            : <Text strong style={{ color: '#722ed1' }}>{v}</Text>,
+            : <Text style={{ color: '#722ed1' }}>{profName(v)}</Text>,
         },
         {
           // คง 'อันดับ' ไว้ — เป็นข้อมูลที่เทียบข้ามได้จริง (มาจาก Ranking List เดียวกันของกลุ่มนั้น)
           title: 'อันดับ', dataIndex: 'p_rank', key: 'p_rank',
           align: 'center' as const, width: 70,
           render: (v: number) => v
-            ? <Text strong style={{ color: rankColor(v) }}>{v}</Text> : '—',
+            ? <Text style={{ color: rankColor(v) }}>{v}</Text> : '—',
         },
       ],
     },
@@ -237,8 +290,7 @@ export default function Results() {
   ]
 
   const profCols = (color: string): ColumnsType<any> => [
-    { title: 'รหัส', dataIndex: 'prof_code', render: (v: string) => <Tag>{v}</Tag> },
-    { title: 'ชื่อ', dataIndex: 'full_name', render: (v: string) => <Text strong>{v || '—'}</Text> },
+    { title: 'อาจารย์', dataIndex: 'full_name', render: (v: string, r: any) => <Text>{v || profName(r.prof_code) || '—'}</Text> },
     { title: 'Quota', dataIndex: 'quota', align: 'center' as const },
     {
       title: 'กลุ่มที่ได้รับ', dataIndex: 'groups_assigned',
@@ -248,11 +300,7 @@ export default function Results() {
     },
     {
       title: 'จำนวน', dataIndex: 'num_assigned', align: 'center' as const,
-      render: (v: number) => <Text strong>{v}</Text>,
-    },
-    {
-      title: 'คงเหลือ', dataIndex: 'quota_remaining', align: 'center' as const,
-      render: (v: number) => <Tag color={v === 0 ? 'success' : v > 0 ? 'warning' : 'error'}>{v}</Tag>,
+      render: (v: number) => <Text>{v}</Text>,
     },
   ]
 
@@ -285,7 +333,7 @@ export default function Results() {
       },
       {
         key: 'unmatched',
-        metric: 'จำนวนกลุ่มที่ไม่ได้จับคู่ (Unmatched)',
+        metric: 'จำนวนกลุ่มที่ไม่ได้จับคู่',
         student: s?.num_unmatched ?? '—',
         professor: p?.num_unmatched ?? '—',
         adv: advantage(s?.num_unmatched ?? null, p?.num_unmatched ?? null, false),
@@ -370,38 +418,8 @@ export default function Results() {
       ),
       children: (
         <div>
-          {/* แถว Legend + Toggle controls — ข้อความ numDiff คงค่าจากข้อมูลเต็มเสมอ ไม่เปลี่ยนตาม filter */}
-          <Flex align="center" justify="space-between" wrap="wrap" gap={8} style={{ marginBottom: 12 }}>
-            <Flex align="center" gap={16}>
-              <Badge color="#1677ff" text={<Text style={{ fontSize: 12 }}>Student-Proposing</Text>} />
-              <Badge color="#722ed1" text={<Text style={{ fontSize: 12 }}>Professor-Proposing</Text>} />
-              {numDiff > 0 && (
-                <Text type="warning" style={{ fontSize: 12 }}>
-                  ⚠ {numDiff} กลุ่มได้ผลต่างกันระหว่างสองโหมด
-                </Text>
-              )}
-            </Flex>
-            <Flex align="center" gap={16}>
-              <Flex align="center" gap={6}>
-                <Switch
-                  size="small"
-                  checked={showDiffOnly}
-                  onChange={setShowDiffOnly}
-                  id="toggle-show-diff-only"
-                />
-                <Text style={{ fontSize: 12, userSelect: 'none' }}>แสดงเฉพาะกลุ่มที่ต่างกัน</Text>
-              </Flex>
-              <Flex align="center" gap={6}>
-                <Switch
-                  size="small"
-                  checked={sortByImpact}
-                  onChange={setSortByImpact}
-                  id="toggle-sort-by-impact"
-                />
-                <Text style={{ fontSize: 12, userSelect: 'none' }}>เรียงตาม Impact</Text>
-              </Flex>
-            </Flex>
-          </Flex>
+          {/* แถบ Legend + Toggle (ใช้ร่วมกับแท็บ Professor Summary) */}
+          {filterBar(numDiff, 'กลุ่ม')}
           <Table
             dataSource={displayRows}
             columns={compColumns}
@@ -424,36 +442,36 @@ export default function Results() {
       key: 'professors',
       label: 'Professor Summary',
       children: (
-        <Row gutter={24}>
-          <Col span={12}>
-            <div style={{ fontWeight: 700, color: '#1677ff', marginBottom: 8, fontSize: 13 }}>
-              Student-Proposing
-            </div>
-            <Table
-              dataSource={profSummaryStudent}
-              columns={profCols('#1677ff')}
-              rowKey="prof_code"
-              size="small"
-              loading={loading}
-              pagination={false}
-              bordered
-            />
-          </Col>
-          <Col span={12}>
-            <div style={{ fontWeight: 700, color: '#722ed1', marginBottom: 8, fontSize: 13 }}>
-              Professor-Proposing
-            </div>
-            <Table
-              dataSource={profSummaryProfessor}
-              columns={profCols('#722ed1')}
-              rowKey="prof_code"
-              size="small"
-              loading={loading}
-              pagination={false}
-              bordered
-            />
-          </Col>
-        </Row>
+        <div>
+          {/* แถบ Legend + Toggle เดียวกับแท็บ Final Matching */}
+          {filterBar(profNumDiff, 'อาจารย์')}
+          <Row gutter={24}>
+            <Col span={12}>
+              <Table
+                dataSource={applyProfFilter(profSummaryStudent)}
+                columns={profCols('#1677ff')}
+                rowKey="prof_code"
+                size="small"
+                loading={loading}
+                pagination={{ pageSize: 20 }}
+                scroll={{ x: true }}
+                bordered
+              />
+            </Col>
+            <Col span={12}>
+              <Table
+                dataSource={applyProfFilter(profSummaryProfessor)}
+                columns={profCols('#722ed1')}
+                rowKey="prof_code"
+                size="small"
+                loading={loading}
+                pagination={{ pageSize: 20 }}
+                scroll={{ x: true }}
+                bordered
+              />
+            </Col>
+          </Row>
+        </div>
       ),
     },
     {
@@ -511,7 +529,7 @@ export default function Results() {
           {selectedRun?.log
             ? (
               <div className="log-viewer">
-                {sanitizeLog(selectedRun.log)}
+                {replaceProfCodes(sanitizeLog(selectedRun.log))}
               </div>
             )
             : <Text type="secondary">ไม่มีข้อมูล</Text>}
@@ -526,7 +544,10 @@ export default function Results() {
   if (!runs.length) {
     return (
       <div style={{ padding: 32 }}>
-        <Title level={4} style={{ marginBottom: 4 }}>ผลลัพธ์การจับคู่ — {program}</Title>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+          <PartitionOutlined style={{ fontSize: 22, color: '#1677ff' }} />
+          <Title level={4} style={{ margin: 0 }}>ผลลัพธ์การจับคู่ — {program}</Title>
+        </div>
         <Text type="secondary" style={{ display: 'block', marginBottom: 40 }}>
           ยังไม่มีผลลัพธ์ของหลักสูตร {program} — ไปรัน Matching ก่อน
         </Text>
@@ -550,7 +571,10 @@ export default function Results() {
         style={{ marginBottom: 24 }}
       >
         <div>
-          <Title level={4} style={{ marginBottom: 4 }}>ผลลัพธ์การจับคู่</Title>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+            <PartitionOutlined style={{ fontSize: 22, color: '#1677ff' }} />
+            <Title level={4} style={{ margin: 0 }}>ผลลัพธ์การจับคู่</Title>
+          </div>
           <Text type="secondary">
             เปรียบเทียบ Student-Proposing 🔵 vs Professor-Proposing 🟣
           </Text>
@@ -565,23 +589,6 @@ export default function Results() {
               label: `Run #${r.id} — ${new Date(r.run_at).toLocaleString('th-TH')} (Seed: ${r.seed})`,
             }))}
           />
-          {selectedRunId && (
-            <Button
-              icon={<DownloadOutlined />}
-              loading={downloadingRun}
-              onClick={async () => {
-                const run = runs.find(r => r.id === selectedRunId)
-                setDownloadingRun(true)
-                await triggerDownload(
-                  `/download/result/${selectedRunId}`,
-                  `result_run${selectedRunId}_seed${run?.seed ?? 0}.xlsx`,
-                )
-                setDownloadingRun(false)
-              }}
-            >
-              ดาวน์โหลด Excel
-            </Button>
-          )}
         </Flex>
       </Flex>
       <Card>

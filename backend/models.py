@@ -11,10 +11,28 @@ from database import Base
 
 
 class Admin(Base):
+    # Legacy table — kept so existing DBs don't break. New auth uses `User`.
     __tablename__ = "admin"
     id = Column(Integer, primary_key=True)
     username = Column(String, unique=True, nullable=False)
     hashed_password = Column(String, nullable=False)
+
+
+class User(Base):
+    """
+    บัญชีผู้ใช้แบบ role-based (admin / student / professor)
+    แอดมินเป็นคนสร้างบัญชีให้ล่วงหน้า (pre-provision)
+    """
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String, unique=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    role = Column(String, nullable=False, default="student")  # admin|student|professor
+    full_name = Column(String)
+    student_id = Column(String, nullable=True)  # เฉพาะ role student
+    program = Column(String, nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class ImportSession(Base):
@@ -29,6 +47,7 @@ class ImportSession(Base):
     source                 = Column(String, default="excel")  # "excel" | "forms"
     expected_counts        = Column(Text, default="{}")       # JSON string {"program": {"students": X, "profs": Y}}
     codes_generated        = Column(Boolean, default=False)   # สร้าง anonymous_code แล้วหรือยัง
+    is_closed              = Column(Boolean, default=False)   # ปิดรอบแล้ว → ส่ง/แก้ฟอร์มไม่ได้ (ปิดเองหรือ auto เมื่อรัน matching)
 
     groups = relationship("Group", back_populates="session", cascade="all, delete-orphan")
     professors = relationship("Professor", back_populates="session", cascade="all, delete-orphan")
@@ -36,6 +55,20 @@ class ImportSession(Base):
     professor_scores = relationship("ProfessorScore", back_populates="session", cascade="all, delete-orphan")
     matching_runs = relationship("MatchingRun", back_populates="session")
     student_members = relationship("StudentMember", back_populates="session", cascade="all, delete-orphan")
+    program_rounds = relationship("ProgramRound", back_populates="session", cascade="all, delete-orphan")
+
+
+class ProgramRound(Base):
+    """สถานะรอบรับฟอร์มแยกต่อหลักสูตร (ภายใน session/รอบเดียวกัน)"""
+    __tablename__ = "program_rounds"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(Integer, ForeignKey("import_sessions.id"), nullable=False)
+    program = Column(String, nullable=False)
+    is_open = Column(Boolean, default=True)          # เปิดรับฟอร์ม
+    is_closed = Column(Boolean, default=False)       # ปิดชั่วคราว (reopen ได้ก่อนรัน matching)
+    codes_generated = Column(Boolean, default=False) # สร้าง anonymous code ของหลักสูตรนี้แล้ว
+
+    session = relationship("ImportSession", back_populates="program_rounds")
 
 
 class Group(Base):
@@ -48,6 +81,7 @@ class Group(Base):
     representative = Column(String)
     member_count = Column(Integer)
     topic_interest = Column(Text)  # JSON string
+    representative_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # นักศึกษาที่สร้างกลุ่ม (Form 1)
 
     session = relationship("ImportSession", back_populates="groups")
     members = relationship("StudentMember", back_populates="group")
@@ -71,6 +105,7 @@ class Professor(Base):
     full_name = Column(String)
     expertise = Column(String)
     quota = Column(Integer)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # อาจารย์ที่กรอก Form 2
 
     session = relationship("ImportSession", back_populates="professors")
 

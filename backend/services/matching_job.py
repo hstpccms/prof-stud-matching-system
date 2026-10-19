@@ -271,7 +271,8 @@ def run_matching(run_id: int, session_id: int, seed: int, program: str, db: Sess
     try:
         _export_input_excel(session_id, program, db, tmp_input)
 
-        # Run the algorithm script
+        # Run the algorithm script — บังคับ UTF-8 ใน child process กัน log ไทยเพี้ยนบน Windows
+        child_env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
         result = subprocess.run(
             [sys.executable, os.path.abspath(ALGORITHM_PATH),
              "--input", tmp_input,
@@ -282,6 +283,7 @@ def run_matching(run_id: int, session_id: int, seed: int, program: str, db: Sess
             encoding="utf-8",
             errors="replace",
             timeout=120,
+            env=child_env,
         )
 
         stdout = result.stdout if result.stdout is not None else ""

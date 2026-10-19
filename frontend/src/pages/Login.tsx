@@ -21,7 +21,9 @@ export default function LoginPage() {
     try {
       const res = await login(values.username, values.password)
       localStorage.setItem('token', res.data.access_token)
-      navigate('/')
+      const role = res.data.role || 'admin'
+      localStorage.setItem('role', role)
+      navigate(role === 'student' ? '/student' : role === 'professor' ? '/professor' : '/')
     } catch (err: any) {
       message.error(err.response?.data?.detail || 'Username หรือ Password ไม่ถูกต้อง')
     } finally {
@@ -108,7 +110,7 @@ export default function LoginPage() {
 
         <Space style={{ width: '100%', justifyContent: 'center', marginTop: 8 }}>
           <Text type="secondary" style={{ fontSize: 12 }}>
-            สำหรับแอดมินเท่านั้น
+            เข้าสู่ระบบด้วยบัญชี แอดมิน / นักศึกษา / อาจารย์
           </Text>
         </Space>
       </Card>

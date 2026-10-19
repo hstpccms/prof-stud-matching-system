@@ -1,36 +1,42 @@
 import { useEffect, useState } from 'react'
 import {
-  Upload, Button, Select, Tabs, Table, Tag, Alert,
-  Card, Typography, Space, Flex, App as AntApp, Spin,
+  Select, Tabs, Table, Alert,
+  Card, Typography, Space, Flex, Spin, Input,
 } from 'antd'
-import {
-  InboxOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
-  FileExcelOutlined,
-} from '@ant-design/icons'
+import { DatabaseOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import {
-  uploadFile, listSessions, getGroups, getProfessors,
-  getRankings, getScores, validateSession,
+  listSessions, getGroups, getProfessors,
+  getRankings, getScores,
 } from '../api/client'
 import { useProgram } from '../ProgramContext'
 
 const { Title, Text } = Typography
-const { Dragger } = Upload
+
+// สไตล์ cell กลางสำหรับตารางทุกแท็บ — เนื้อหาตัวบางเหมือนกันหมด (หัวตารางเป็นตัวหนาตาม default)
+const CELL = { fontSize: 13 }
+// ไฮไลต์สีเฉพาะรหัส GroupID / ProfID (คนละสี) — ยังคงเป็นตัวบาง
+const ID_GROUP = { fontSize: 13, color: '#1677ff' }   // GroupID = น้ำเงิน
+const ID_PROF = { fontSize: 13, color: '#722ed1' }    // ProfID = ม่วง
 
 type TabType = 'groups' | 'professors' | 'rankings' | 'scores'
 
 export default function DataManagement() {
   const { program } = useProgram()
-  const { message } = AntApp.useApp()
   const [sessions, setSessions] = useState<any[]>([])
   const [selectedSid, setSelectedSid] = useState<number | null>(null)
   const [tab, setTab] = useState<TabType>('groups')
   const [tableData, setTableData] = useState<any[]>([])
-  const [validationResult, setValidationResult] = useState<any>(null)
-  const [uploading, setUploading] = useState(false)
-  const [validating, setValidating] = useState(false)
   const [loadingTable, setLoadingTable] = useState(false)
-  // suppress unused ref warning — kept for future direct file input use
+  const [search, setSearch] = useState('')
+  // map รหัสอาจารย์ (P001) -> ชื่อ สำหรับแสดงแทนรหัสในแท็บ Rankings/Scores
+  const [profMap, setProfMap] = useState<Record<string, string>>({})
+  const profName = (code: string) => profMap[code] || code
+
+  // กรองแถวในแท็บปัจจุบันตามคำค้นหา (ค้นทุก field รวม nested members/topics)
+  const shown = search.trim()
+    ? tableData.filter(r => JSON.stringify(r).toLowerCase().includes(search.toLowerCase().trim()))
+    : tableData
 
   const fetchSessions = async () => {
     const res = await listSessions(program)
@@ -61,36 +67,21 @@ export default function DataManagement() {
 
   useEffect(() => { fetchSessions() }, [program])
   useEffect(() => {
-    if (selectedSid) { setValidationResult(null); fetchTable(selectedSid, tab) }
+    if (selectedSid) { fetchTable(selectedSid, tab) }
   }, [selectedSid, tab, program])
 
-  const handleFile = async (file: File) => {
-    if (!file.name.endsWith('.xlsx')) { message.error('กรุณาเลือกไฟล์ .xlsx'); return false }
-    setUploading(true)
-    try {
-      const res = await uploadFile(file, program)
-      message.success(`อัปโหลด "${file.name}" สำหรับหลักสูตร ${program} สำเร็จ`)
-      await fetchSessions(); setSelectedSid(res.data.id)
-    } catch (err: any) {
-      message.error(err.response?.data?.detail || 'อัปโหลดล้มเหลว')
-    } finally { setUploading(false) }
-    return false // prevent antd auto upload
-  }
-
-  const handleValidate = async () => {
-    if (!selectedSid) return
-    setValidating(true)
-    try {
-      const res = await validateSession(selectedSid, program)
-      setValidationResult(res.data)
-      if (res.data.passed) message.success('ผ่านการตรวจสอบแล้ว')
-      else message.error(`พบ ${res.data.errors.length} ข้อผิดพลาด`)
-      await fetchSessions()
-    } catch { message.error('เกิดข้อผิดพลาด') }
-    finally { setValidating(false) }
-  }
-
-  const selectedSession = sessions.find(s => s.id === selectedSid)
+  // โหลดรายชื่ออาจารย์ของ session ไว้ map รหัส -> ชื่อ (ใช้ในแท็บ Rankings/Scores)
+  useEffect(() => {
+    if (!selectedSid) { setProfMap({}); return }
+    getProfessors(selectedSid, program).then(r => {
+      const m: Record<string, string> = {}
+      r.data.forEach((p: any) => {
+        const code = p.anonymous_code || p.prof_id
+        if (code) m[code] = p.full_name || code
+      })
+      setProfMap(m)
+    }).catch(() => setProfMap({}))
+  }, [selectedSid, program])
 
   /* ── Table columns ── */
   const groupColumns: ColumnsType<any> = [
@@ -99,14 +90,14 @@ export default function DataManagement() {
       key: 'group_id',
       width: 90,
       align: 'center',
-      render: (_, r) => <Text strong>{r.group_id || r.anonymous_code || '-'}</Text>,
+      render: (_, r) => <Text style={ID_GROUP}>{r.group_id || r.anonymous_code || '-'}</Text>,
     },
     {
       title: 'จำนวนสมาชิกกลุ่ม',
       key: 'member_count',
       width: 140,
       align: 'center',
-      render: (_, r) => `${r.member_count ?? (r.members?.length || 0)} คน`,
+      render: (_, r) => <Text style={CELL}>{r.member_count ?? (r.members?.length || 0)} คน</Text>,
     },
     {
       title: 'รายชื่อสมาชิก (รหัส + ชื่อ-นามสกุล)',
@@ -127,15 +118,15 @@ export default function DataManagement() {
                     gap: 8,
                   }}
                 >
-                  <Text strong style={{ width: 85, fontSize: 12 }}>{m.student_id}</Text>
-                  <Text style={{ fontSize: 12 }}>{m.full_name || '-'}</Text>
+                  <Text style={{ width: 85, fontSize: 13 }}>{m.student_id}</Text>
+                  <Text style={{ fontSize: 13 }}>{m.full_name || '-'}</Text>
                 </div>
               ))}
             </Flex>
           )
         }
         if (r.representative) {
-          return <Text style={{ fontSize: 12 }}>{r.representative}</Text>
+          return <Text style={{ fontSize: 13 }}>{r.representative}</Text>
         }
         return <Text type="secondary">—</Text>
       },
@@ -154,15 +145,15 @@ export default function DataManagement() {
               {topics.map((t: any, idx: number) => {
                 const title = typeof t === 'string' ? t : t.title || '—'
                 return (
-                  <div key={idx} style={{ fontSize: 12 }}>
-                    <Text strong>• {title}</Text>
+                  <div key={idx} style={{ fontSize: 13 }}>
+                    <Text style={CELL}>• {title}</Text>
                   </div>
                 )
               })}
             </Flex>
           )
         } catch {
-          return <Text style={{ fontSize: 12 }}>{String(r.topic_interest)}</Text>
+          return <Text style={{ fontSize: 13 }}>{String(r.topic_interest)}</Text>
         }
       },
     },
@@ -181,7 +172,7 @@ export default function DataManagement() {
               {topics.map((t: any, idx: number) => {
                 const detail = typeof t === 'object' && t?.detail ? t.detail : '—'
                 return (
-                  <div key={idx} style={{ fontSize: 12 }}>
+                  <div key={idx} style={{ fontSize: 13 }}>
                     <Text type="secondary">• {detail}</Text>
                   </div>
                 )
@@ -201,20 +192,20 @@ export default function DataManagement() {
       key: 'prof_id',
       width: 100,
       align: 'center',
-      render: (_, r) => <Text strong>{r.prof_id || r.anonymous_code || '-'}</Text>,
+      render: (_, r) => <Text style={ID_PROF}>{r.prof_id || r.anonymous_code || '-'}</Text>,
     },
     {
       title: 'รายชื่ออาจารย์ (ชื่อ-นามสกุล)',
       dataIndex: 'full_name',
       key: 'full_name',
       width: 220,
-      render: v => <Text strong>{v || '—'}</Text>,
+      render: v => <Text style={CELL}>{v || '—'}</Text>,
     },
     {
       title: 'ความเชี่ยวชาญ',
       dataIndex: 'expertise',
       key: 'expertise',
-      render: v => <Text style={{ fontSize: 13 }}>{v || '—'}</Text>,
+      render: v => <Text style={CELL}>{v || '—'}</Text>,
     },
     {
       title: 'โควต้าที่รับกลุ่มนักศึกษาได้',
@@ -222,30 +213,22 @@ export default function DataManagement() {
       key: 'quota',
       width: 180,
       align: 'center',
-      render: v => <Text strong style={{ color: '#1677ff', fontSize: 14 }}>{v ?? 0} กลุ่ม</Text>,
+      render: v => <Text style={CELL}>{v ?? 0} กลุ่ม</Text>,
     },
   ]
 
   const scoreColumns: ColumnsType<any> = [
-    { title: 'อาจารย์', dataIndex: 'prof_code', key: 'prof_code', render: v => <Tag>{v}</Tag> },
-    { title: 'กลุ่ม', dataIndex: 'group_code', key: 'group_code', render: v => <Tag color="blue">{v}</Tag> },
-    { title: 'A (TopicFit)', dataIndex: 'score_a', key: 'score_a', align: 'center' },
-    { title: 'B (Clarity)', dataIndex: 'score_b', key: 'score_b', align: 'center' },
-    { title: 'Sub-score', dataIndex: 'sub_score', key: 'sub_score', align: 'center', render: v => v?.toFixed(1) },
-    {
-      title: 'Main Score', dataIndex: 'main_score', key: 'main_score', align: 'center',
-      render: v => (
-        <Text strong style={{ color: v >= 70 ? '#52c41a' : v >= 40 ? '#faad14' : '#ff4d4f' }}>
-          {v}
-        </Text>
-      ),
-    },
+    { title: 'อาจารย์', dataIndex: 'prof_code', key: 'prof_code', render: v => <Text style={ID_PROF}>{profName(v)}</Text> },
+    { title: 'กลุ่ม', dataIndex: 'group_code', key: 'group_code', align: 'center', render: v => <Text style={ID_GROUP}>{v}</Text> },
+    { title: 'A (TopicFit)', dataIndex: 'score_a', key: 'score_a', align: 'center', render: v => <Text style={CELL}>{v}</Text> },
+    { title: 'B (Clarity)', dataIndex: 'score_b', key: 'score_b', align: 'center', render: v => <Text style={CELL}>{v}</Text> },
+    { title: 'Score', dataIndex: 'sub_score', key: 'sub_score', align: 'center', render: v => <Text style={CELL}>{v?.toFixed(1)}</Text> },
   ]
 
   const renderRankingsTable = () => {
     const pivot: Record<string, Record<string, number>> = {}
     const profSet = new Set<string>()
-    tableData.forEach((r: any) => {
+    shown.forEach((r: any) => {
       pivot[r.group_code] = pivot[r.group_code] || {}
       pivot[r.group_code][r.prof_code] = r.rank
       profSet.add(r.prof_code)
@@ -253,27 +236,27 @@ export default function DataManagement() {
     const profs = Array.from(profSet).sort()
     const rows = Object.keys(pivot).sort().map(g => ({ group: g, ...pivot[g] }))
     const cols: ColumnsType<any> = [
-      { title: 'กลุ่ม', dataIndex: 'group', key: 'group', render: v => <Tag>{v}</Tag> },
+      { title: 'กลุ่ม', dataIndex: 'group', key: 'group', align: 'center', render: v => <Text style={ID_GROUP}>{v}</Text> },
       ...profs.map(p => ({
-        title: p, dataIndex: p, key: p, align: 'center' as const,
+        title: <span style={{ color: '#722ed1' }}>{profName(p)}</span>, dataIndex: p, key: p, align: 'center' as const,
         render: (v: number) => v !== undefined
-          ? <Text style={{ color: v === 1 ? '#52c41a' : v <= 3 ? '#1677ff' : '#8c8c8c', fontWeight: v <= 3 ? 600 : 400 }}>{v}</Text>
-          : <Text type="danger">—</Text>,
+          ? <Text style={CELL}>{v}</Text>
+          : <Text type="secondary" style={CELL}>—</Text>,
       })),
     ]
-    return <Table dataSource={rows} columns={cols} rowKey="group" size="small" scroll={{ x: true }} pagination={false} />
+    return <Table dataSource={rows} columns={cols} rowKey="group" size="small" scroll={{ x: true }} pagination={{ pageSize: 20 }} />
   }
 
   const tabItems = [
     {
       key: 'groups', label: 'กลุ่มนักศึกษา',
       children: loadingTable ? <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>
-        : <Table dataSource={tableData} columns={groupColumns} rowKey="id" size="small" pagination={{ pageSize: 20 }} />,
+        : <Table dataSource={shown} columns={groupColumns} rowKey="id" size="small" pagination={{ pageSize: 20 }} />,
     },
     {
       key: 'professors', label: 'อาจารย์',
       children: loadingTable ? <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>
-        : <Table dataSource={tableData} columns={profColumns} rowKey="id" size="small" pagination={{ pageSize: 20 }} />,
+        : <Table dataSource={shown} columns={profColumns} rowKey="id" size="small" pagination={{ pageSize: 20 }} />,
     },
     {
       key: 'rankings', label: 'Student Rankings',
@@ -283,7 +266,7 @@ export default function DataManagement() {
     {
       key: 'scores', label: 'Professor Scores',
       children: loadingTable ? <div style={{ padding: 40, textAlign: 'center' }}><Spin /></div>
-        : <Table dataSource={tableData} columns={scoreColumns} rowKey={(_, i) => String(i)} size="small" pagination={{ pageSize: 20 }} />,
+        : <Table dataSource={shown} columns={scoreColumns} rowKey={(_, i) => String(i)} size="small" pagination={{ pageSize: 20 }} />,
     },
   ]
 
@@ -291,29 +274,20 @@ export default function DataManagement() {
     <div style={{ padding: 32 }} className="animate-fade-in">
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
-        <Title level={4} style={{ marginBottom: 4 }}>จัดการข้อมูล</Title>
-        <Text type="secondary">อัปโหลดและตรวจสอบข้อมูล Excel</Text>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+          <DatabaseOutlined style={{ fontSize: 22, color: '#1677ff' }} />
+          <Title level={4} style={{ margin: 0 }}>จัดการข้อมูล</Title>
+        </div>
+        <Text type="secondary">ดูข้อมูลที่กรอกผ่านฟอร์มในเว็บ แยกตามกลุ่มนักศึกษา อาจารย์ การจัดอันดับ และคะแนน</Text>
       </div>
 
-      {/* Upload */}
-      <Card style={{ marginBottom: 16 }}>
-        <Dragger
-          accept=".xlsx"
-          showUploadList={false}
-          beforeUpload={f => { handleFile(f); return false }}
-          disabled={uploading}
-        >
-          <p className="ant-upload-drag-icon">
-            {uploading ? <Spin /> : <InboxOutlined />}
-          </p>
-          <p className="ant-upload-text">
-            {uploading ? 'กำลังอัปโหลด...' : 'คลิกหรือลากไฟล์มาวาง'}
-          </p>
-          <p className="ant-upload-hint">
-            <FileExcelOutlined /> .xlsx — 4 ชีต: Group_Info, Professor_Info, Student_Rankings, Professor_Scores
-          </p>
-        </Dragger>
-      </Card>
+      {sessions.length === 0 && (
+        <Alert
+          type="info" showIcon style={{ marginBottom: 16 }}
+          message="ยังไม่มีข้อมูลในรอบนี้"
+          description="ข้อมูลจะปรากฏเมื่อแอดมินเปิดรอบ และนักศึกษา/อาจารย์เริ่มกรอกฟอร์มในเว็บ"
+        />
+      )}
 
       {/* Data Preview */}
       {sessions.length > 0 && (
@@ -329,40 +303,14 @@ export default function DataManagement() {
                 label: `${s.filename || `Session #${s.id}`} — ${new Date(s.uploaded_at).toLocaleString('th-TH')}`,
               }))}
             />
-            {selectedSession && (
-              <Tag
-                color={selectedSession.status === 'validated' ? 'success' : 'default'}
-                icon={selectedSession.status === 'validated' ? <CheckCircleOutlined /> : undefined}
-              >
-                {selectedSession.status === 'validated' ? 'ผ่านการตรวจสอบ' : selectedSession.status}
-              </Tag>
-            )}
-            <Button
-              icon={<CheckCircleOutlined />}
-              onClick={handleValidate}
-              loading={validating}
-              disabled={!selectedSid}
-            >
-              ตรวจสอบ
-            </Button>
+            <Input.Search
+              placeholder="ค้นหาในตาราง (รหัส / ชื่อ / ความเชี่ยวชาญ / หัวข้อ)"
+              allowClear
+              style={{ width: 320 }}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
           </Space>
-
-          {/* Validation result */}
-          {validationResult && (
-            <div style={{ marginBottom: 16 }}>
-              {validationResult.passed
-                ? <Alert type="success" showIcon icon={<CheckCircleOutlined />} message="ผ่านการตรวจสอบทุกเงื่อนไข — พร้อมรัน Matching" />
-                : <Flex vertical gap={8} style={{ width: '100%' }}>
-                    {validationResult.errors.map((err: any, i: number) => (
-                      <Alert
-                        key={i} type="error" showIcon
-                        icon={<ExclamationCircleOutlined />}
-                        message={err.message}
-                      />
-                    ))}
-                  </Flex>}
-            </div>
-          )}
 
           {/* Tabs */}
           <Tabs

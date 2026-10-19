@@ -13,6 +13,7 @@ import models
 import schemas
 from services.matching_job import run_matching
 from services.validation import validate_session
+from services.rounds import get_program_round
 
 router = APIRouter(prefix="/api/matching", tags=["matching"])
 
@@ -36,6 +37,15 @@ def start_run(
     if not session:
         raise HTTPException(404, "ไม่พบ Session")
 
+    # กันกดรันซ้ำ/พร้อมกันของหลักสูตรเดียวกัน
+    running = (
+        db.query(models.MatchingRun)
+        .filter_by(session_id=body.session_id, program=body.program, status="running")
+        .first()
+    )
+    if running:
+        raise HTTPException(409, "หลักสูตรนี้กำลังรัน Matching อยู่ กรุณารอให้เสร็จก่อน")
+
     # Must pass validation
     val = validate_session(body.session_id, db, body.program)
     if not val["passed"]:
@@ -50,6 +60,9 @@ def start_run(
         status="running",
     )
     db.add(run)
+    # ปิดรอบอัตโนมัติ 'เฉพาะหลักสูตรนี้' เมื่อเริ่มรัน Matching — กันการส่ง/แก้ฟอร์มเพิ่ม
+    pr = get_program_round(db, session, body.program, create=True)
+    pr.is_closed = True
     db.commit()
     db.refresh(run)
 

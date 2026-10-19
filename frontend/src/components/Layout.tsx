@@ -9,43 +9,56 @@ import {
   HistoryOutlined,
   LogoutOutlined,
   ThunderboltOutlined,
+  TeamOutlined,
+  FormOutlined,
 } from '@ant-design/icons'
 
 const { Sider, Content } = Layout
 const { Text } = Typography
 
-const NAV_ITEMS = [
+import { useProgram } from '../ProgramContext'
+import { PROGRAMS } from '../constants'
+
+const ADMIN_NAV = [
   { key: '/', label: 'Dashboard', icon: <DashboardOutlined /> },
   { key: '/data', label: 'จัดการข้อมูล', icon: <DatabaseOutlined /> },
   { key: '/run', label: 'รัน Matching', icon: <PlayCircleOutlined /> },
   { key: '/results', label: 'ผลลัพธ์', icon: <BarChartOutlined /> },
   { key: '/downloads', label: 'ดาวน์โหลด', icon: <DownloadOutlined /> },
   { key: '/history', label: 'ประวัติ', icon: <HistoryOutlined /> },
+  { key: '/admin/users', label: 'จัดการบัญชี', icon: <TeamOutlined /> },
 ]
 
-import { useProgram } from '../ProgramContext'
-import { PROGRAMS } from '../constants'
+const ROLE_LABEL: Record<string, string> = {
+  admin: 'Admin Dashboard',
+  student: 'นักศึกษา',
+  professor: 'อาจารย์',
+}
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const { token } = theme.useToken()
   const { program, setProgram } = useProgram()
+  const role = localStorage.getItem('role') || 'admin'
+  const isAdmin = role === 'admin'
+
+  const navItems = isAdmin
+    ? ADMIN_NAV
+    : role === 'student'
+      ? [{ key: '/student', label: 'ฟอร์มของฉัน', icon: <FormOutlined /> }]
+      : [{ key: '/professor', label: 'ฟอร์มของฉัน', icon: <FormOutlined /> }]
 
   const menuItems = [
-    ...NAV_ITEMS.map(({ key, label, icon }) => ({ key, label, icon })),
+    ...navItems.map(({ key, label, icon }) => ({ key, label, icon })),
     { type: 'divider' as const },
-    {
-      key: '__logout',
-      label: 'ออกจากระบบ',
-      icon: <LogoutOutlined />,
-      danger: true,
-    },
+    { key: '__logout', label: 'ออกจากระบบ', icon: <LogoutOutlined />, danger: true },
   ]
 
   const handleMenuClick = ({ key }: { key: string }) => {
     if (key === '__logout') {
       localStorage.removeItem('token')
+      localStorage.removeItem('role')
       navigate('/login')
     } else {
       navigate(key)
@@ -96,7 +109,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               Matching System
             </Text>
             <Text type="secondary" style={{ fontSize: 11 }}>
-              Admin Dashboard
+              {ROLE_LABEL[role] || role}
             </Text>
           </div>
         </div>
@@ -121,27 +134,29 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             flexDirection: 'column',
           }}
         >
-          <div style={{
-            background: token.colorBgContainer,
-            padding: '12px 24px',
-            borderBottom: `1px solid ${token.colorBorderSecondary}`,
-            display: 'flex',
-            justifyContent: 'flex-end',
-            alignItems: 'center',
-            position: 'sticky',
-            top: 0,
-            zIndex: 10,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <Text strong>หลักสูตร:</Text>
-              <Select 
-                value={program}
-                onChange={setProgram}
-                options={PROGRAMS.map(p => ({ label: p, value: p }))}
-                style={{ width: 250 }}
-              />
+          {isAdmin && (
+            <div style={{
+              background: token.colorBgContainer,
+              padding: '12px 24px',
+              borderBottom: `1px solid ${token.colorBorderSecondary}`,
+              display: 'flex',
+              justifyContent: 'flex-end',
+              alignItems: 'center',
+              position: 'sticky',
+              top: 0,
+              zIndex: 10,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <Text strong>หลักสูตร:</Text>
+                <Select
+                  value={program}
+                  onChange={setProgram}
+                  options={PROGRAMS.map(p => ({ label: p, value: p }))}
+                  style={{ width: 250 }}
+                />
+              </div>
             </div>
-          </div>
+          )}
           <div style={{ flex: 1 }}>
             {children}
           </div>

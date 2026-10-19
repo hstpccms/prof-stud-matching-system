@@ -1,46 +1,18 @@
 """
 Data Router — /api/data
-Upload Excel, preview data, validate
+Preview data, validate (ข้อมูลมาจากฟอร์มในเว็บ — ไม่มี Excel upload แล้ว)
 """
-import os
-import shutil
 from typing import List, Optional
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database import get_db
 from auth import get_current_admin
 import models
 import schemas
-from services.excel_import import import_excel
 from services.validation import validate_session
 
-UPLOADS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "uploads")
-
 router = APIRouter(prefix="/api/data", tags=["data"])
-
-
-@router.post("/upload", response_model=schemas.ImportSessionOut)
-async def upload_file(
-    file: UploadFile = File(...),
-    program: Optional[str] = Form(None),
-    db: Session = Depends(get_db),
-    _: models.Admin = Depends(get_current_admin),
-):
-    os.makedirs(UPLOADS_DIR, exist_ok=True)
-    if not file.filename.endswith(".xlsx"):
-        raise HTTPException(400, "กรุณาอัปโหลดไฟล์ .xlsx เท่านั้น")
-
-    dest = os.path.join(UPLOADS_DIR, file.filename)
-    with open(dest, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-
-    session_id, error = import_excel(dest, file.filename, db, program)
-    if error:
-        raise HTTPException(422, detail=error)
-
-    session = db.query(models.ImportSession).filter_by(id=session_id).first()
-    return session
 
 
 @router.get("/sessions", response_model=List[schemas.ImportSessionOut])

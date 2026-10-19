@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session
 from database import get_db
 from auth import get_current_admin
 import models
-from services.matching_job import _export_input_excel
+from services.excel_display import export_rawdata_display, export_result_display
+from services.announcement_pdf import build_announcement_pdf
 
 router = APIRouter(prefix="/api/download", tags=["download"])
 
@@ -37,32 +38,16 @@ def download_upload(
     if not session:
         raise HTTPException(404, "ไม่พบข้อมูล session")
 
-    # สำหรับ session ที่มาจาก forms (Webhook) ไม่มีไฟล์ต้นฉบับในระบบ
-    # สร้าง Excel on the fly จากข้อมูลในฐานข้อมูล (กรองตาม program ได้)
-    if session.source == "forms":
-        fd, tmp_path = tempfile.mkstemp(suffix=".xlsx")
-        os.close(fd)
-        _export_input_excel(session_id, program, db, tmp_path)
-        # ตั้งชื่อไฟล์ให้มี .xlsx เสมอ
-        base_name = session.filename or f"forms_session_{session_id}"
-        if program:
-            base_name = f"forms_{program}_session_{session_id}"
-        if not base_name.endswith(".xlsx"):
-            base_name = base_name + ".xlsx"
-        background_tasks.add_task(cleanup_temp_file, tmp_path)
-        return FileResponse(
-            tmp_path,
-            filename=base_name,
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
-
-    if not session.file_path:
-        raise HTTPException(404, "ไม่พบไฟล์")
-    if not os.path.exists(session.file_path):
-        raise HTTPException(404, "ไฟล์ถูกลบออกจากระบบแล้ว")
+    # ข้อมูลทั้งหมดมาจากฟอร์มในเว็บ — สร้าง Excel สำหรับ "ดาวน์โหลด" (แยกจากไฟล์ที่ feed matching)
+    fd, tmp_path = tempfile.mkstemp(suffix=".xlsx")
+    os.close(fd)
+    export_rawdata_display(session_id, program, db, tmp_path)
+    base_name = f"round_{program}_session_{session_id}" if program else f"round_session_{session_id}"
+    base_name = base_name + ".xlsx"
+    background_tasks.add_task(cleanup_temp_file, tmp_path)
     return FileResponse(
-        session.file_path,
-        filename=session.filename or f"upload_{session_id}.xlsx",
+        tmp_path,
+        filename=base_name,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
@@ -70,17 +55,55 @@ def download_upload(
 @router.get("/result/{run_id}")
 def download_result(
     run_id: int,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
     _: models.Admin = Depends(get_current_admin),
 ):
     run = db.query(models.MatchingRun).filter_by(id=run_id).first()
-    if not run or not run.output_file_path:
+    if not run:
+        raise HTTPException(404, "ไม่พบ Run")
+    if run.status != "success":
         raise HTTPException(404, "ไม่พบไฟล์ผลลัพธ์ (อาจยังรันไม่เสร็จ)")
-    if not os.path.exists(run.output_file_path):
-        raise HTTPException(404, "ไฟล์ถูกลบออกจากระบบแล้ว")
-    filename = os.path.basename(run.output_file_path)
+
+    # สร้างไฟล์ผลลัพธ์ "สำหรับดาวน์โหลด" ใหม่จาก DB (+ Tie-Break จากไฟล์ native)
+    # — ไม่กระทบไฟล์ native ที่ _import_results ใช้
+    fd, tmp_path = tempfile.mkstemp(suffix=".xlsx")
+    os.close(fd)
+    try:
+        export_result_display(run_id, db, tmp_path)
+    except Exception as e:
+        cleanup_temp_file(tmp_path)
+        raise HTTPException(500, f"สร้างไฟล์ผลลัพธ์ไม่สำเร็จ: {e}")
+    background_tasks.add_task(cleanup_temp_file, tmp_path)
     return FileResponse(
-        run.output_file_path,
-        filename=filename,
+        tmp_path,
+        filename=f"result_run{run_id}.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@router.get("/result/{run_id}/pdf")
+def download_result_pdf(
+    run_id: int,
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    db: Session = Depends(get_db),
+    _: models.Admin = Depends(get_current_admin),
+):
+    """สร้าง PDF ประกาศผล (อาจารย์ ↔ กลุ่ม + รายชื่อสมาชิก, ไม่มีคะแนน) แล้วส่งให้ดาวน์โหลด"""
+    run = db.query(models.MatchingRun).filter_by(id=run_id).first()
+    if not run:
+        raise HTTPException(404, "ไม่พบ Run")
+
+    fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+    os.close(fd)
+    try:
+        build_announcement_pdf(run_id, db, tmp_path)
+    except Exception as e:
+        cleanup_temp_file(tmp_path)
+        raise HTTPException(500, f"สร้าง PDF ไม่สำเร็จ: {e}")
+    background_tasks.add_task(cleanup_temp_file, tmp_path)
+    return FileResponse(
+        tmp_path,
+        filename=f"announcement_run{run_id}.pdf",
+        media_type="application/pdf",
     )

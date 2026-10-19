@@ -35,10 +35,10 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-def get_current_admin(
+def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
-) -> models.Admin:
+) -> models.User:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="ไม่พบ Token หรือ Token หมดอายุ กรุณา Login ใหม่",
@@ -52,7 +52,36 @@ def get_current_admin(
     except JWTError:
         raise credentials_exception
 
-    admin = db.query(models.Admin).filter(models.Admin.username == username).first()
-    if admin is None:
+    user = db.query(models.User).filter(models.User.username == username).first()
+    if user is None or not user.is_active:
         raise credentials_exception
-    return admin
+    return user
+
+
+def require_role(*allowed_roles: str):
+    """Dependency factory: อนุญาตเฉพาะ role ที่กำหนด มิฉะนั้น 403"""
+    def _checker(user: models.User = Depends(get_current_user)) -> models.User:
+        if user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="คุณไม่มีสิทธิ์เข้าถึงส่วนนี้",
+            )
+        return user
+    return _checker
+
+
+# Convenience dependencies
+def get_current_admin(user: models.User = Depends(require_role("admin"))) -> models.User:
+    return user
+
+
+def require_admin(user: models.User = Depends(require_role("admin"))) -> models.User:
+    return user
+
+
+def require_student(user: models.User = Depends(require_role("student"))) -> models.User:
+    return user
+
+
+def require_professor(user: models.User = Depends(require_role("professor"))) -> models.User:
+    return user

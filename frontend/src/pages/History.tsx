@@ -1,44 +1,21 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Table, Tag, Button, Typography, Space, App as AntApp } from 'antd'
+import { Table, Tag, Button, Typography, Space } from 'antd'
 import {
-  EyeOutlined, DownloadOutlined, ClockCircleOutlined,
-  CheckCircleOutlined, ExclamationCircleOutlined, SyncOutlined,
+  EyeOutlined, ClockCircleOutlined,
+  CheckCircleOutlined, ExclamationCircleOutlined, SyncOutlined, HistoryOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import { listRuns } from '../api/client'
-import api from '../api/client'
 import { useProgram } from '../ProgramContext'
 
 const { Title, Text } = Typography
 
 export default function HistoryPage() {
   const navigate = useNavigate()
-  const { message } = AntApp.useApp()
   const { program } = useProgram()
   const [runs, setRuns] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [downloadingId, setDownloadingId] = useState<number | null>(null)
-
-  const triggerDownload = async (url: string, filename: string) => {
-    try {
-      const res = await api.get(url, { responseType: 'blob' })
-      const blob = new Blob([res.data], { type: (res.headers['content-type'] as string) || 'application/octet-stream' })
-      const blobUrl = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = blobUrl
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(blobUrl)
-    } catch (err: any) {
-      const status = err?.response?.status
-      if (status === 401) message.error('Session หมดอายุ กรุณา Login ใหม่')
-      else if (status === 404) message.error('ไม่พบไฟล์บนเซิร์ฟเวอร์')
-      else message.error(`ดาวน์โหลดไม่สำเร็จ (${status ?? 'network error'})`)
-    }
-  }
 
   useEffect(() => {
     setLoading(true)
@@ -97,28 +74,14 @@ export default function HistoryPage() {
     {
       title: '', key: 'actions',
       render: (_, r) => r.status === 'success' ? (
-        <Space size={4}>
-          <Button
-            icon={<EyeOutlined />}
-            size="small"
-            onClick={() => navigate('/results', { state: { runId: r.id } })}
-            title="ดูผลลัพธ์"
-          />
-          <Button
-            icon={<DownloadOutlined />}
-            size="small"
-            loading={downloadingId === r.id}
-            title="ดาวน์โหลด"
-            onClick={async () => {
-              setDownloadingId(r.id)
-              await triggerDownload(
-                `/download/result/${r.id}`,
-                `result_run${r.id}_seed${r.seed}.xlsx`,
-              )
-              setDownloadingId(null)
-            }}
-          />
-        </Space>
+        <Button
+          icon={<EyeOutlined />}
+          size="small"
+          onClick={() => navigate('/results', { state: { runId: r.id } })}
+          title="ดูผลลัพธ์"
+        >
+          ดูผล
+        </Button>
       ) : null,
     },
   ]
@@ -127,8 +90,11 @@ export default function HistoryPage() {
     <div style={{ padding: 32 }} className="animate-fade-in">
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
-        <Title level={4} style={{ marginBottom: 4 }}>ประวัติ / Audit Log</Title>
-        <Text type="secondary">รายการการรัน Matching ทุกครั้ง — ผลลัพธ์ทุกรอบเป็น Immutable</Text>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+          <HistoryOutlined style={{ fontSize: 22, color: '#1677ff' }} />
+          <Title level={4} style={{ margin: 0 }}>ประวัติ / Audit Log</Title>
+        </div>
+        <Text type="secondary">บันทึกตรวจสอบย้อนหลังการรัน Matching ทุกครั้ง (รวมรอบที่ล้มเหลว) — เก็บ Seed ไว้ reproduce ได้ · ผลลัพธ์ทุกรอบเป็น Immutable</Text>
       </div>
 
       <Table

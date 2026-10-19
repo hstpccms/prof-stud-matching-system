@@ -5,7 +5,7 @@ import {
 } from 'antd'
 import {
   PlayCircleOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
-  ReloadOutlined, ClockCircleOutlined,
+  ReloadOutlined, ClockCircleOutlined, ThunderboltOutlined,
 } from '@ant-design/icons'
 import { listSessions, runMatching, getRun, validateSession } from '../api/client'
 import { useProgram } from '../ProgramContext'
@@ -88,7 +88,10 @@ export default function RunMatching() {
     <div style={{ padding: 32 }} className="animate-fade-in">
       {/* Header */}
       <div style={{ marginBottom: 24 }}>
-        <Title level={4} style={{ marginBottom: 4 }}>รัน Matching Algorithm</Title>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+          <ThunderboltOutlined style={{ fontSize: 22, color: '#1677ff' }} />
+          <Title level={4} style={{ margin: 0 }}>รัน Matching Algorithm</Title>
+        </div>
         <Text type="secondary">Student-Proposing Deferred Acceptance with Hospital/Residents Ties</Text>
       </div>
 
@@ -117,11 +120,22 @@ export default function RunMatching() {
                   {checkingVal
                     ? <Alert type="info" showIcon message="กำลังตรวจสอบข้อมูล..." />
                     : validation && (
-                      <Alert
-                        type={validation.passed ? 'success' : 'error'}
-                        showIcon
-                        message={validation.passed ? 'ข้อมูลผ่านการตรวจสอบ' : `ไม่ผ่าน ${validation.errors.length} เงื่อนไข`}
-                      />
+                      validation.passed ? (
+                        <Alert type="success" showIcon message="ข้อมูลผ่านการตรวจสอบ — พร้อมรัน Matching" />
+                      ) : (
+                        <Alert
+                          type="error"
+                          showIcon
+                          message={`ยังรัน Matching ไม่ได้ — ไม่ผ่าน ${validation.errors.length} เงื่อนไข`}
+                          description={
+                            <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                              {validation.errors.map((e: any, i: number) => (
+                                <li key={i} style={{ marginBottom: 4 }}>{e.message}</li>
+                              ))}
+                            </ul>
+                          }
+                        />
+                      )
                     )}
                 </div>
               )}

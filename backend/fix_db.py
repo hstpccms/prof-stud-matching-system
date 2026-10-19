@@ -35,6 +35,9 @@ def run_fix():
     add_column_if_not_exists("import_sessions", "expected_student_count", "INTEGER")
     add_column_if_not_exists("import_sessions", "expected_prof_count", "INTEGER")
     add_column_if_not_exists("import_sessions", "codes_generated", "BOOLEAN DEFAULT 0")
+    add_column_if_not_exists("import_sessions", "is_closed", "BOOLEAN DEFAULT 0")
+
+    add_column_if_not_exists("import_sessions", "expected_counts", "TEXT DEFAULT '{}'")
 
     # ── student_members table ─────────────────────────────────────────────────
     cursor.execute("""
@@ -42,12 +45,68 @@ def run_fix():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id INTEGER NOT NULL REFERENCES import_sessions(id),
             group_id INTEGER REFERENCES groups(id),
+            program VARCHAR,
             student_id VARCHAR NOT NULL,
             full_name VARCHAR,
             submitted_at DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     """)
     print("Ensured student_members table exists")
+    add_column_if_not_exists("student_members", "program", "VARCHAR")
+
+    # ── Role-based accounts (v5) ──────────────────────────────────────────────
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username VARCHAR NOT NULL UNIQUE,
+            hashed_password VARCHAR NOT NULL,
+            role VARCHAR NOT NULL DEFAULT 'student',
+            full_name VARCHAR,
+            student_id VARCHAR,
+            program VARCHAR,
+            is_active BOOLEAN DEFAULT 1,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    print("Ensured users table exists")
+    add_column_if_not_exists("groups", "representative_user_id", "INTEGER REFERENCES users(id)")
+    add_column_if_not_exists("professors", "user_id", "INTEGER REFERENCES users(id)")
+
+    # ── program_rounds: สถานะรอบแยกต่อหลักสูตร ────────────────────────────────
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS program_rounds (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL REFERENCES import_sessions(id),
+            program VARCHAR NOT NULL,
+            is_open BOOLEAN DEFAULT 1,
+            is_closed BOOLEAN DEFAULT 0,
+            codes_generated BOOLEAN DEFAULT 0
+        )
+    """)
+    print("Ensured program_rounds table exists")
+
+    # Backfill: ให้ทุก session ที่ active + มีข้อมูล ได้ ProgramRound ต่อหลักสูตร
+    cursor.execute("SELECT id, is_closed FROM import_sessions WHERE is_active=1")
+    for sid, sclosed in cursor.fetchall():
+        cursor.execute(
+            "SELECT DISTINCT program FROM groups WHERE session_id=? AND program IS NOT NULL "
+            "UNION SELECT DISTINCT program FROM professors WHERE session_id=? AND program IS NOT NULL",
+            (sid, sid),
+        )
+        for (prog,) in cursor.fetchall():
+            cursor.execute("SELECT COUNT(*) FROM program_rounds WHERE session_id=? AND program=?", (sid, prog))
+            if cursor.fetchone()[0] == 0:
+                cursor.execute(
+                    "SELECT COUNT(*) FROM groups WHERE session_id=? AND program=? AND anonymous_code IS NOT NULL",
+                    (sid, prog),
+                )
+                cg = 1 if cursor.fetchone()[0] > 0 else 0
+                cursor.execute(
+                    "INSERT INTO program_rounds (session_id, program, is_open, is_closed, codes_generated) "
+                    "VALUES (?,?,1,?,?)",
+                    (sid, prog, 1 if sclosed else 0, cg),
+                )
+                print(f"  backfilled program_round: session {sid} / {prog} (codes={cg})")
 
     conn.commit()
     conn.close()

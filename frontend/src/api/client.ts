@@ -15,7 +15,9 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    // ไม่ redirect ถ้าเป็น request ล็อกอินเอง (ให้หน้า Login แสดง error ได้)
+    const isLoginReq = (err.config?.url || '').includes('/auth/login')
+    if (err.response?.status === 401 && !isLoginReq) {
       localStorage.removeItem('token')
       window.location.href = '/login'
     }
@@ -29,19 +31,38 @@ export const login = (username: string, password: string) =>
 
 export const getMe = () => api.get('/auth/me')
 
+// ── Admin: user accounts ────────────────────────────────────────────────────────
+export const listUsers = (params?: { role?: string; program?: string }) =>
+  api.get('/admin/users', { params })
+export const createUser = (body: {
+  username: string; password: string; role: string;
+  full_name?: string; student_id?: string; program?: string;
+}) => api.post('/admin/users', body)
+export const createUsersBulk = (users: any[]) => api.post('/admin/users/bulk', { users })
+export const resetUserPassword = (id: number, new_password: string) =>
+  api.post(`/admin/users/${id}/reset-password`, { new_password })
+export const deleteUser = (id: number) => api.delete(`/admin/users/${id}`)
+
+// ── Student portal ──────────────────────────────────────────────────────────────
+export const getStudentMe = () => api.get('/student/me')
+export const getStudentRoster = () => api.get('/student/roster')
+export const submitStudentForm1 = (body: any) => api.post('/student/form1', body)
+export const getProfessorsForRanking = () => api.get('/student/form3/professors')
+export const submitStudentForm3 = (rankings: { prof_anonymous_code: string; rank: number }[]) =>
+  api.post('/student/form3', { rankings })
+
+// ── Professor portal ────────────────────────────────────────────────────────────
+export const getProfessorMe = () => api.get('/professor/me')
+export const submitProfessorForm2 = (expertise: string, quota: number) =>
+  api.post('/professor/form2', { expertise, quota })
+export const getGroupsForScoring = () => api.get('/professor/form4/groups')
+export const submitProfessorForm4 = (scores: { group_anonymous_code: string; score_a: number; score_b: number }[]) =>
+  api.post('/professor/form4', { scores })
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 export const getDashboard = (program?: string) => api.get('/data/sessions/latest/dashboard', { params: program ? { program } : undefined })
 
 // ── Data ──────────────────────────────────────────────────────────────────────
-export const uploadFile = (file: File, program?: string) => {
-  const form = new FormData()
-  form.append('file', file)
-  if (program) form.append('program', program)
-  return api.post('/data/upload', form, {
-    headers: { 'Content-Type': 'multipart/form-data' },
-  })
-}
-
 export const listSessions = (program?: string) => api.get('/data/sessions', { params: program ? { program } : undefined })
 export const getGroups = (sid: number, program?: string) => api.get(`/data/sessions/${sid}/groups`, { params: program ? { program } : undefined })
 export const getProfessors = (sid: number, program?: string) => api.get(`/data/sessions/${sid}/professors`, { params: program ? { program } : undefined })
@@ -70,10 +91,13 @@ export const downloadUpload = (sid: number, program?: string) =>
 export const downloadResult = (runId: number) =>
   `/api/download/result/${runId}`
 
-// ── Webhook / MS Forms ───────────────────────────────────────────────────────
-export const getWebhookStatus = (program?: string) => api.get('/webhook/status', { params: program ? { program } : undefined })
-export const activateWebhookSession = (expected_counts: any) =>
-  api.post('/webhook/activate', { expected_counts })
-export const generateAnonymousCodes = () => api.post('/webhook/generate-codes')
+// ── Round management (admin) ─────────────────────────────────────────────────
+export const getRoundStatus = (program?: string) => api.get('/round/status', { params: program ? { program } : undefined })
+export const openRound = (program: string, expected_counts: any = {}) =>
+  api.post('/round/open', { program, expected_counts })
+export const generateAnonymousCodes = (program: string) => api.post('/round/generate-codes', { program })
+export const closeRound = (program: string) => api.post('/round/close', { program })
+export const reopenRound = (program: string) => api.post('/round/reopen', { program })
+export const getRosterCheck = (program?: string) => api.get('/round/roster-check', { params: program ? { program } : undefined })
 
 export default api

@@ -8,12 +8,27 @@ import RunMatching from './pages/RunMatching'
 import Results from './pages/Results'
 import Downloads from './pages/Downloads'
 import History from './pages/History'
+import AdminUsers from './pages/AdminUsers'
+import StudentPortal from './pages/StudentPortal'
+import ProfessorPortal from './pages/ProfessorPortal'
 
 import { ProgramProvider } from './ProgramContext'
 
-function PrivateRoute({ children }: { children: React.ReactNode }) {
+function homeFor(role: string | null) {
+  if (role === 'student') return '/student'
+  if (role === 'professor') return '/professor'
+  return '/'
+}
+
+/** Guard: ต้องล็อกอิน + (ถ้ากำหนด roles) ต้องมี role ที่อนุญาต */
+function PrivateRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
   const token = localStorage.getItem('token')
+  const role = localStorage.getItem('role')
   if (!token) return <Navigate to="/login" replace />
+  if (roles && !roles.includes(role || '')) {
+    // role ไม่ตรง → เด้งกลับหน้าแรกของ role ตัวเอง
+    return <Navigate to={homeFor(role)} replace />
+  }
   return <Layout>{children}</Layout>
 }
 
@@ -24,12 +39,20 @@ export default function App() {
         <AntApp>
         <Routes>
           <Route path="/login" element={<Login />} />
-          <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
-          <Route path="/data" element={<PrivateRoute><DataManagement /></PrivateRoute>} />
-          <Route path="/run" element={<PrivateRoute><RunMatching /></PrivateRoute>} />
-          <Route path="/results" element={<PrivateRoute><Results /></PrivateRoute>} />
-          <Route path="/downloads" element={<PrivateRoute><Downloads /></PrivateRoute>} />
-          <Route path="/history" element={<PrivateRoute><History /></PrivateRoute>} />
+
+          {/* Admin */}
+          <Route path="/" element={<PrivateRoute roles={['admin']}><Dashboard /></PrivateRoute>} />
+          <Route path="/data" element={<PrivateRoute roles={['admin']}><DataManagement /></PrivateRoute>} />
+          <Route path="/run" element={<PrivateRoute roles={['admin']}><RunMatching /></PrivateRoute>} />
+          <Route path="/results" element={<PrivateRoute roles={['admin']}><Results /></PrivateRoute>} />
+          <Route path="/downloads" element={<PrivateRoute roles={['admin']}><Downloads /></PrivateRoute>} />
+          <Route path="/history" element={<PrivateRoute roles={['admin']}><History /></PrivateRoute>} />
+          <Route path="/admin/users" element={<PrivateRoute roles={['admin']}><AdminUsers /></PrivateRoute>} />
+
+          {/* Student / Professor portals */}
+          <Route path="/student" element={<PrivateRoute roles={['student']}><StudentPortal /></PrivateRoute>} />
+          <Route path="/professor" element={<PrivateRoute roles={['professor']}><ProfessorPortal /></PrivateRoute>} />
+
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
         </AntApp>

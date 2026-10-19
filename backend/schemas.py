@@ -3,7 +3,7 @@ Pydantic Schemas for request/response validation
 """
 from datetime import datetime
 from typing import Optional, List, Union, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator, Field
 
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -15,6 +15,37 @@ class LoginRequest(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    role: Optional[str] = None
+
+
+# ── User management (admin creates student/professor accounts) ─────────────────
+class UserCreate(BaseModel):
+    username: str
+    password: str
+    role: str  # "student" | "professor" (admin สร้างผ่าน seed/CLI)
+    full_name: Optional[str] = None
+    student_id: Optional[str] = None  # เฉพาะ student
+    program: Optional[str] = None
+
+
+class UserBulkCreate(BaseModel):
+    users: List[UserCreate]
+
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+    role: str
+    full_name: Optional[str] = None
+    student_id: Optional[str] = None
+    program: Optional[str] = None
+    is_active: bool = True
+
+    model_config = {"from_attributes": True}
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str
 
 
 # ── Import Session ─────────────────────────────────────────────────────────────
@@ -28,6 +59,7 @@ class ImportSessionOut(BaseModel):
     expected_student_count: Optional[int] = None
     expected_prof_count: Optional[int] = None
     codes_generated: Optional[bool] = False
+    is_closed: Optional[bool] = False
 
     model_config = {"from_attributes": True}
 
@@ -100,7 +132,7 @@ class ValidationResult(BaseModel):
 # ── Matching ───────────────────────────────────────────────────────────────────
 class RunMatchingRequest(BaseModel):
     session_id: int
-    seed: int = 2026
+    seed: int = Field(default=2026, ge=0, le=2_147_483_647)
     program: str
 
 
@@ -156,6 +188,8 @@ class StudentTrackingOut(BaseModel):
     group_id: Optional[str] = "—"
     form_submitted: bool = True
     status: str = "ส่งแล้ว"
+    form1_submitted: bool = False   # อยู่ในกลุ่มที่ส่ง Form 1 แล้ว
+    form3_submitted: bool = False   # กลุ่มของตนจัดอันดับ (Form 3) แล้ว
 
     model_config = {"from_attributes": True}
 
@@ -203,11 +237,16 @@ class DashboardStats(BaseModel):
     students: List[StudentTrackingOut] = []
 
 
-# ── Webhook / MS Forms ────────────────────────────────────────────────────────────────
+# ── Round management (admin) ──────────────────────────────────────────────────
+class OpenRoundRequest(BaseModel):
+    """Request body for POST /api/round/open — เปิดรอบของหลักสูตรที่ระบุ"""
+    program: str
+    expected_counts: dict = {}  # {"รังสีเทคนิค": {"students": 30, "profs": 10}, ...} (optional)
 
-class ActivateSessionRequest(BaseModel):
-    """Request body for POST /api/webhook/activate"""
-    expected_counts: dict  # {"รังสีเทคนิค": {"students": 30, "profs": 10}, ...}
+
+class ProgramActionRequest(BaseModel):
+    """Request body สำหรับ generate-codes / close / reopen — ระบุหลักสูตร"""
+    program: str
 
 
 # ── Form 1: ข้อมูลกลุ่มนักศึกษา ────────────────────────────────────────────────────────────
@@ -216,50 +255,122 @@ class StudentMemberIn(BaseModel):
     full_name: str
 
 
-class FormGroupInfoIn(BaseModel):
-    """Request body for POST /api/webhook/group-info (Form 1)"""
-    program: str
-    members: List[StudentMemberIn]      # รหัส + ชื่อ-นามสกุล สมาชิกทุกคน
-    topic1_title: str
-    topic1_detail: Optional[str] = None
-    topic2_title: str
-    topic2_detail: Optional[str] = None
-    topic3_title: str
-    topic3_detail: Optional[str] = None
+class StudentForm1In(BaseModel):
+    """Request body for POST /api/student/form1 (Form 1) — program มาจากบัญชีที่ล็อกอิน"""
+    members: List[StudentMemberIn] = Field(min_length=2, max_length=4)   # สมาชิกกลุ่ม (กติกากลุ่มละ 2–4 คน)
+    topic1_title: str = Field(max_length=150)
+    topic1_detail: Optional[str] = Field(default=None, max_length=300)
+    topic2_title: str = Field(max_length=150)
+    topic2_detail: Optional[str] = Field(default=None, max_length=300)
+    topic3_title: str = Field(max_length=150)
+    topic3_detail: Optional[str] = Field(default=None, max_length=300)
 
 
-# ── Form 2: ข้อมูลอาจารย์ ───────────────────────────────────────────────────────────────
-class FormProfInfoIn(BaseModel):
-    """Request body for POST /api/webhook/prof-info (Form 2)"""
-    program: str
-    full_name: str
-    expertise: str
-    quota: int
+# ── Form 2: ข้อมูลอาจารย์ — full_name/program มาจากบัญชีที่ล็อกอิน ──────────────────────────
+class ProfessorForm2In(BaseModel):
+    """Request body for POST /api/professor/form2 (Form 2)"""
+    expertise: str = Field(max_length=200)
+    quota: int = Field(ge=1, le=50)
 
 
-# ── Form 3: นักศึกษาจัดอันดับอาจารย์ (MS Forms Ranking) ────────────────────────────────────
+# ── Form 3: นักศึกษาจัดอันดับอาจารย์ — group resolve จากบัญชีที่ล็อกอิน ─────────────────────
 class ProfRankEntryIn(BaseModel):
     prof_anonymous_code: str
-    rank: int
+    rank: int = Field(ge=1)
 
 
-class FormStudentRankingIn(BaseModel):
-    """Request body for POST /api/webhook/student-ranking (Form 3)"""
-    group_anonymous_code: str
-    rankings: List[ProfRankEntryIn]
+class StudentForm3In(BaseModel):
+    """Request body for POST /api/student/form3 (Form 3)"""
+    rankings: List[ProfRankEntryIn] = Field(max_length=200)
 
 
-# ── Form 4: อาจารย์ให้คะแนนกลุ่ม ──────────────────────────────────────────────────────────────
+# ── Form 4: อาจารย์ให้คะแนนกลุ่ม — prof resolve จากบัญชีที่ล็อกอิน ─────────────────────────
 class GroupScoreEntryIn(BaseModel):
     group_anonymous_code: str
-    score_a: int
-    score_b: int
+    score_a: int = Field(ge=0, le=100)
+    score_b: int = Field(ge=0, le=100)
+
+    @field_validator("score_a", "score_b", mode="before")
+    @classmethod
+    def _round_scores(cls, v):
+        # กันเคสอาจารย์กรอกทศนิยม (เช่น 85.5) ที่เดิมทำให้ validation 422 → ปัดเป็นจำนวนเต็ม
+        if isinstance(v, float):
+            return round(v)
+        return v
 
 
-class FormProfScoreIn(BaseModel):
-    """Request body for POST /api/webhook/prof-score (Form 4)"""
-    prof_anonymous_code: str
-    scores: List[GroupScoreEntryIn]
+class ProfessorForm4In(BaseModel):
+    """Request body for POST /api/professor/form4 (Form 4)"""
+    scores: List[GroupScoreEntryIn] = Field(max_length=200)
+
+
+# ── Portal "me" status (student / professor) ──────────────────────────────────
+class AnonProfOut(BaseModel):
+    """อาจารย์แบบนิรนามสำหรับ Form 3 (นักศึกษาเห็นแค่รหัส + ความเชี่ยวชาญ)"""
+    anonymous_code: str
+    expertise: Optional[str] = None
+
+
+class AnonGroupOut(BaseModel):
+    """กลุ่มแบบนิรนามสำหรับ Form 4 (อาจารย์เห็นแค่รหัส + หัวข้อ)"""
+    anonymous_code: str
+    member_count: int = 0
+    topics: List[Any] = []
+
+
+class StudentMeOut(BaseModel):
+    round_open: bool
+    codes_generated: bool
+    has_group: bool
+    is_representative: bool
+    group_anonymous_code: Optional[str] = None
+    ranking_submitted: bool = False
+    matching_started: bool = False
+    is_closed: bool = False
+    representative_name: Optional[str] = None
+    topics: List[Any] = []                       # prefill Form 1
+    current_rankings: List[ProfRankEntryIn] = [] # prefill Form 3
+    group: Optional[SubmittedGroupOut] = None
+
+
+class ProfessorMeOut(BaseModel):
+    round_open: bool
+    codes_generated: bool
+    info_submitted: bool
+    anonymous_code: Optional[str] = None
+    expertise: Optional[str] = None
+    quota: Optional[int] = None
+    score_submitted: bool = False
+    scored_count: int = 0
+    total_groups: int = 0
+    matching_started: bool = False
+    is_closed: bool = False
+    current_scores: List[GroupScoreEntryIn] = []  # prefill Form 4
+
+
+# ── Roster (admin creates all accounts; students pick members from it) ─────────
+class RosterOut(BaseModel):
+    student_id: str
+    full_name: Optional[str] = None
+
+
+class RosterMissingOut(BaseModel):
+    student_id: Optional[str] = None
+    full_name: Optional[str] = None
+    username: str
+
+
+class RosterCheckOut(BaseModel):
+    expected_count: int
+    covered_count: int
+    num_groups: int
+    missing: List[RosterMissingOut] = []      # บัญชีที่ยังไม่ถูกใส่ในกลุ่ม
+    unknown_ids: List[str] = []               # รหัสที่กรอกมาแต่ไม่ตรง roster
+    no_student_id: List[str] = []             # username ของบัญชีที่ยังไม่ตั้ง student_id
+    # ── ฝั่งอาจารย์ ──
+    prof_expected_count: int = 0              # บัญชีอาจารย์ในหลักสูตร
+    prof_form2_count: int = 0                 # อาจารย์ที่ส่ง Form 2 แล้ว
+    prof_form4_count: int = 0                 # อาจารย์ที่ให้คะแนนครบทุกกลุ่ม (Form 4)
 
 
 class GroupAnonymousCodeOut(BaseModel):
@@ -280,12 +391,13 @@ class ProfAnonymousCodeOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class WebhookStatusOut(BaseModel):
-    """สถานะการรับฟอร์มทั้งหมดสำหรับแสดงบน Dashboard"""
+class RoundStatusOut(BaseModel):
+    """สถานะการรับฟอร์มทั้งหมดสำหรับแสดงบน Dashboard (admin)"""
     session_id: Optional[int]
     is_active: bool
     source: str
     codes_generated: bool
+    is_closed: bool = False
     # ── Form 1 stats
     expected_student_count: Optional[int]
     received_student_count: int          # unique student_ids ที่ส่งมาแล้ว
