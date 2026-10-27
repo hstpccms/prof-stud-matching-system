@@ -56,6 +56,7 @@ class ImportSessionOut(BaseModel):
     status: str
     is_active: Optional[bool] = False
     source: Optional[str] = "excel"
+    program: Optional[str] = None
     expected_student_count: Optional[int] = None
     expected_prof_count: Optional[int] = None
     codes_generated: Optional[bool] = False
@@ -139,6 +140,7 @@ class RunMatchingRequest(BaseModel):
 class MatchingRunOut(BaseModel):
     id: int
     session_id: int
+    program: Optional[str] = None
     run_at: datetime
     seed: int
     mode: Optional[str] = "both"
@@ -159,6 +161,8 @@ class MatchingRunOut(BaseModel):
 
 class RecentRunSummary(BaseModel):
     id: int
+    session_id: Optional[int] = None
+    program: Optional[str] = None
     run_at: datetime
     mode: Optional[str] = "both"
     status: str

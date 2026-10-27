@@ -36,6 +36,7 @@ def run_fix():
     add_column_if_not_exists("import_sessions", "expected_prof_count", "INTEGER")
     add_column_if_not_exists("import_sessions", "codes_generated", "BOOLEAN DEFAULT 0")
     add_column_if_not_exists("import_sessions", "is_closed", "BOOLEAN DEFAULT 0")
+    add_column_if_not_exists("import_sessions", "program", "VARCHAR")
 
     add_column_if_not_exists("import_sessions", "expected_counts", "TEXT DEFAULT '{}'")
 

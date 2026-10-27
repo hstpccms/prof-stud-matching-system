@@ -24,6 +24,7 @@ def list_sessions(
     query = db.query(models.ImportSession)
     if program:
         query = query.filter(
+            (models.ImportSession.program == program) |
             (models.ImportSession.groups.any(models.Group.program == program)) |
             (models.ImportSession.professors.any(models.Professor.program == program)) |
             (models.ImportSession.student_members.any(models.StudentMember.program == program)) |
@@ -116,11 +117,29 @@ def dashboard_stats(
     _: models.Admin = Depends(get_current_admin),
 ):
     """Stats for the Dashboard page using the latest import session."""
-    latest_session = (
-        db.query(models.ImportSession)
-        .order_by(models.ImportSession.uploaded_at.desc())
-        .first()
-    )
+    latest_session = None
+    if program:
+        latest_session = (
+            db.query(models.ImportSession)
+            .filter(
+                (models.ImportSession.program == program) |
+                (
+                    (models.ImportSession.program == None) & (
+                        (models.ImportSession.groups.any(models.Group.program == program)) |
+                        (models.ImportSession.program_rounds.any(models.ProgramRound.program == program)) |
+                        (models.ImportSession.matching_runs.any(models.MatchingRun.program == program))
+                    )
+                )
+            )
+            .order_by(models.ImportSession.uploaded_at.desc())
+            .first()
+        )
+    if not latest_session:
+        latest_session = (
+            db.query(models.ImportSession)
+            .order_by(models.ImportSession.uploaded_at.desc())
+            .first()
+        )
     if not latest_session:
         return {
             "latest_session": None,

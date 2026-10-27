@@ -40,25 +40,69 @@ def open_round(
     db: Session = Depends(get_db),
     _: models.User = Depends(require_admin),
 ):
-    """เปิดรอบรับฟอร์มของ 'หลักสูตรที่ระบุ' (เริ่มใหม่ — ล้างข้อมูลเฉพาะหลักสูตรนั้น ไม่กระทบหลักสูตรอื่น)"""
+    """
+    เปิดรอบรับฟอร์มของ 'หลักสูตรที่ระบุ'
+    - หากรอบเดิมของหลักสูตรนี้รัน Matching ไปแล้ว:
+      จัดเก็บรอบเดิมเข้าประวัติ (ไม่ลบข้อมูลเก่า) แล้วสร้าง Session รอบใหม่เฉพาะหลักสูตรนี้ (รูปแบบ A)
+    - หากรอบเดิมยังไม่ได้รัน Matching:
+      ล้างข้อมูลดราฟต์เดิมเฉพาะหลักสูตรนั้นเพื่อเริ่มต้นใหม่
+    """
     program = body.program
-    # ใช้ session ที่เปิดอยู่เป็นภาชนะรวม ถ้ายังไม่มีให้สร้าง
-    session = get_active_round_optional(db)
-    # กันเผลอเปิดรอบใหม่ทับหลักสูตรที่รัน Matching ไปแล้ว (จะล้างผล/ข้อมูลทิ้ง)
+    session = get_active_round_optional(db, program=program)
+
+    # กรณีรอบเดิมของหลักสูตรนี้ประมวลผล Matching เสร็จสิ้นแล้ว -> รูปแบบ A: เก็บของเดิมไว้ แล้วเปิดรอบใหม่
     if session is not None and program_matching_started(db, session.id, program):
-        raise HTTPException(
-            400,
-            detail="หลักสูตรนี้รัน Matching ไปแล้ว ไม่สามารถเปิดรอบใหม่ (ซึ่งจะล้างข้อมูลและผล) ได้",
+        abbr_name = (
+            "RT" if "รังสี" in program else
+            "HK" if "เคลื่อนไหว" in program else
+            "PMD" if "ฉุกเฉิน" in program else
+            program
         )
-    if session is None:
-        session = models.ImportSession(
-            filename="web_round", source="web", is_active=True, status="pending",
-            expected_counts="{}", codes_generated=False, is_closed=False,
+        # ถ้า session เดิมเป็น session เฉพาะของหลักสูตรนี้ ให้ปิด active
+        if session.program == program:
+            session.is_active = False
+
+        new_session = models.ImportSession(
+            filename=f"web_round_{abbr_name}",
+            source="web",
+            program=program,
+            is_active=True,
+            status="pending",
+            expected_counts=session.expected_counts or "{}",
+            codes_generated=False,
+            is_closed=False,
         )
-        db.add(session)
+        db.add(new_session)
         db.flush()
 
-    # ล้างข้อมูลหลักสูตรนี้ (ถ้ามีรอบเดิม) แล้วเริ่มใหม่
+        pr = models.ProgramRound(
+            session_id=new_session.id,
+            program=program,
+            is_open=True,
+            is_closed=False,
+            codes_generated=False,
+        )
+        db.add(pr)
+        db.commit()
+        db.refresh(new_session)
+        return new_session
+
+    if session is None:
+        new_session = models.ImportSession(
+            filename="web_round",
+            source="web",
+            program=program,
+            is_active=True,
+            status="pending",
+            expected_counts="{}",
+            codes_generated=False,
+            is_closed=False,
+        )
+        db.add(new_session)
+        db.flush()
+        session = new_session
+
+    # ล้างข้อมูลดราฟต์ของหลักสูตรนี้ (เฉพาะกรณีที่ยังไม่ได้รัน Matching) แล้วเริ่มใหม่
     _clear_program_data(db, session.id, program)
 
     # อัปเดต expected_counts เฉพาะหลักสูตรนี้
@@ -89,7 +133,7 @@ def generate_codes(
 ):
     """สุ่ม shuffle กลุ่ม/อาจารย์ของ 'หลักสูตรที่ระบุ' แล้ว assign G001.., P001.. (เฉพาะหลักสูตรนั้น)"""
     program = body.program
-    session = get_active_round(db)
+    session = get_active_round(db, program=program)
     pr = get_program_round(db, session, program)
     if pr is None or not pr.is_open:
         raise HTTPException(400, detail="ยังไม่เปิดรอบของหลักสูตรนี้")
@@ -133,7 +177,7 @@ def close_round(
     _: models.User = Depends(require_admin),
 ):
     """ปิดรับฟอร์มของหลักสูตรที่ระบุ — หลักสูตรอื่นไม่กระทบ"""
-    session = get_active_round(db)
+    session = get_active_round(db, program=body.program)
     pr = get_program_round(db, session, body.program, create=True)
     pr.is_closed = True
     db.commit()
@@ -148,9 +192,12 @@ def reopen_round(
     _: models.User = Depends(require_admin),
 ):
     """เปิดรับฟอร์มของหลักสูตรที่ระบุอีกครั้ง — ทำได้เฉพาะก่อนรัน Matching ของหลักสูตรนั้น"""
-    session = get_active_round(db)
+    session = get_active_round(db, program=body.program)
     if program_matching_started(db, session.id, body.program):
-        raise HTTPException(400, detail="หลักสูตรนี้เริ่มรัน Matching ไปแล้ว ไม่สามารถเปิดรับฟอร์มซ้ำได้")
+        raise HTTPException(
+            400,
+            detail="หลักสูตรนี้รัน Matching เสร็จสิ้นแล้ว ไม่สามารถเปิดรับฟอร์มซ้ำได้ (หากต้องการเริ่มรอบใหม่ กรุณากดเปิดรอบใหม่)",
+        )
     pr = get_program_round(db, session, body.program, create=True)
     pr.is_closed = False
     db.commit()
@@ -165,7 +212,7 @@ def roster_check(
     _: models.User = Depends(require_admin),
 ):
     """เทียบรายชื่อบัญชีนักศึกษา (roster) กับรายชื่อที่ถูกกรอกผ่าน Form 1 จริงในรอบนี้"""
-    session = get_active_round_optional(db)
+    session = get_active_round_optional(db, program=program)
 
     roster_q = db.query(models.User).filter_by(role="student")
     if program:
@@ -242,7 +289,7 @@ def round_status(
     _: models.User = Depends(require_admin),
 ):
     """สถานะการรับฟอร์มทั้งหมดสำหรับ Dashboard (กรองตามหลักสูตรได้)"""
-    session = get_active_round_optional(db)
+    session = get_active_round_optional(db, program=program)
 
     if not session:
         return schemas.RoundStatusOut(

@@ -19,7 +19,10 @@ api.interceptors.response.use(
     const isLoginReq = (err.config?.url || '').includes('/auth/login')
     if (err.response?.status === 401 && !isLoginReq) {
       localStorage.removeItem('token')
-      window.location.href = '/login'
+      localStorage.removeItem('role')
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login'
+      }
     }
     return Promise.reject(err)
   }

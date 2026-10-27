@@ -33,7 +33,7 @@ def professor_me(
     db: Session = Depends(get_db),
     user: models.User = Depends(require_professor),
 ):
-    session = get_active_round_optional(db)
+    session = get_active_round_optional(db, program=user.program)
     pr = get_program_round(db, session, user.program) if session else None
     if not session or pr is None or not pr.is_open:
         return schemas.ProfessorMeOut(
@@ -80,7 +80,7 @@ def submit_form2(
     user: models.User = Depends(require_professor),
 ):
     """ส่ง/แก้ข้อมูลอาจารย์ (Form 2) — ล็อกเมื่อ generate codes แล้ว"""
-    session = get_active_round(db)
+    session = get_active_round(db, program=user.program)
     pr = get_program_round(db, session, user.program)
     if pr is None or not pr.is_open:
         raise HTTPException(400, detail="ยังไม่เปิดรอบของหลักสูตรนี้")
@@ -112,7 +112,7 @@ def list_groups_for_scoring(
     user: models.User = Depends(require_professor),
 ):
     """รายชื่อกลุ่มแบบนิรนาม (G001..) สำหรับให้คะแนน — เฉพาะหลัง generate codes"""
-    session = get_active_round(db)
+    session = get_active_round(db, program=user.program)
     pr = get_program_round(db, session, user.program)
     if pr is None or not pr.codes_generated:
         raise HTTPException(400, detail="ยังไม่เปิดให้คะแนน (แอดมินยังไม่ได้สร้างรหัสนิรนาม)")
@@ -144,7 +144,7 @@ def submit_form4(
     user: models.User = Depends(require_professor),
 ):
     """ส่งคะแนน (Form 4) — คำนวณ sub/main score อัตโนมัติ, resolve อาจารย์จากบัญชี"""
-    session = get_active_round(db)
+    session = get_active_round(db, program=user.program)
     pr = get_program_round(db, session, user.program)
     if pr is None or not pr.codes_generated:
         raise HTTPException(400, detail="ยังไม่เปิดให้คะแนน (แอดมินยังไม่ได้สร้างรหัสนิรนาม)")

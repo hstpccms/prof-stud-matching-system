@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   Card, Row, Col, Statistic, Alert, Button, Typography,
   Tag, Space, Flex, Spin, Empty, Tooltip, Divider,
-  Table, Badge, Popconfirm,
+  Table, Badge, Popconfirm, App as AntApp,
 } from 'antd'
 import {
   CheckCircleOutlined, CloseCircleOutlined, LoadingOutlined,
@@ -141,6 +141,7 @@ function formatDateFull(iso: string) {
 }
 
 export default function Dashboard() {
+  const { message } = AntApp.useApp()
   const navigate = useNavigate()
   const [data, setData] = useState<DashboardData | null>(null)
   const [recentRuns, setRecentRuns] = useState<RecentRun[]>([])
@@ -265,36 +266,59 @@ export default function Dashboard() {
     setOpening(true)
     try {
       await openRound(program)
+      message.success(`เปิดรอบใหม่สำหรับ "${program}" สำเร็จ`)
       refreshStatus()
-    } catch { /* ignore */ }
-    setOpening(false)
+      getDashboard(program).then(r => setData(r.data)).catch(() => {})
+      getRecentRuns(program).then(r => setRecentRuns(r.data)).catch(() => {})
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || 'เปิดรอบไม่สำเร็จ'
+      message.error(msg)
+    } finally {
+      setOpening(false)
+    }
   }
 
   const handleGenerateCodes = async () => {
     setGenerating(true)
     try {
       await generateAnonymousCodes(program)
+      message.success(`สร้าง Anonymous Code สำหรับ "${program}" สำเร็จ`)
       refreshStatus()
-    } catch { /* ignore */ }
-    setGenerating(false)
+      getDashboard(program).then(r => setData(r.data)).catch(() => {})
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || 'สร้าง Anonymous Code ไม่สำเร็จ'
+      message.error(msg)
+    } finally {
+      setGenerating(false)
+    }
   }
 
   const handleCloseRound = async () => {
     setClosing(true)
     try {
       await closeRound(program)
+      message.success(`ปิดรับฟอร์มของ "${program}" เรียบร้อย`)
       refreshStatus()
-    } catch { /* ignore */ }
-    setClosing(false)
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || 'ปิดรับฟอร์มไม่สำเร็จ'
+      message.error(msg)
+    } finally {
+      setClosing(false)
+    }
   }
 
   const handleReopenRound = async () => {
     setClosing(true)
     try {
       await reopenRound(program)
+      message.success(`เปิดรับฟอร์มของ "${program}" อีกครั้งสำเร็จ`)
       refreshStatus()
-    } catch { /* ignore */ }
-    setClosing(false)
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || 'เปิดรับฟอร์มไม่สำเร็จ'
+      message.error(msg)
+    } finally {
+      setClosing(false)
+    }
   }
 
   // ── Alert Banners ─────────────────────────────────────────────────────────
@@ -512,7 +536,7 @@ export default function Dashboard() {
             {!webhookStatus?.is_active && (
               <Popconfirm
                 title={`เปิดรอบรับฟอร์มของ "${program}"?`}
-                description="หากหลักสูตรนี้มีข้อมูลเดิมอยู่ จะถูกล้างเพื่อเริ่มรอบใหม่ (หลักสูตรอื่นไม่กระทบ)"
+                description={`เริ่มต้นเปิดรับฟอร์มรอบใหม่สำหรับหลักสูตร "${program}" (หลักสูตรอื่นไม่กระทบ)`}
                 onConfirm={handleOpenRound}
                 okText="เปิดรอบ" cancelText="ยกเลิก"
               >
@@ -603,7 +627,7 @@ export default function Dashboard() {
               title="Quota รวม"
               value={safeData.total_quota}
               suffix="ที่นั่ง"
-              valueStyle={!safeData.quota_sufficient && safeData.num_groups > 0 ? { color: '#ff4d4f' } : undefined}
+              styles={{ content: !safeData.quota_sufficient && safeData.num_groups > 0 ? { color: '#ff4d4f' } : undefined }}
               prefix={!safeData.quota_sufficient && safeData.num_groups > 0 ? <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} /> : undefined}
             />
             {!safeData.quota_sufficient && safeData.num_groups > 0 && (
@@ -616,7 +640,7 @@ export default function Dashboard() {
             <Statistic
               title="จับคู่ล่าสุด"
               value={matchedNum !== null ? `${matchedNum} / ${matchedTotal}` : '—'}
-              valueStyle={{ color: matchValueColor, fontSize: 28 }}
+              styles={{ content: { color: matchValueColor, fontSize: 28 } }}
             />
             {run?.status === 'success' && run.num_unmatched > 0 && (
               <Text style={{ fontSize: 11, color: '#fa8c16' }}>
@@ -724,10 +748,10 @@ export default function Dashboard() {
               </Flex>
               <Space wrap>
                 <Popconfirm
-                  title="เปิดรอบรับฟอร์มใหม่?"
-                  description="ระบบจะปิดรอบเดิม (ถ้ามี) แล้วเริ่มรอบใหม่"
+                  title={`เปิดรอบใหม่สำหรับหลักสูตร "${program}"?`}
+                  description="ระบบจะจัดเก็บรอบปัจจุบันเข้าสู่ประวัติ (สามารถดูผลย้อนหลังได้ที่เมนู History และ Downloads) และเปิดรอบรับฟอร์มใหม่สำหรับหลักสูตรนี้"
                   onConfirm={handleOpenRound}
-                  okText="เปิดรอบ" cancelText="ยกเลิก"
+                  okText="เปิดรอบใหม่" cancelText="ยกเลิก"
                 >
                   <Button type={webhookStatus?.is_active ? 'default' : 'primary'} icon={<FormOutlined />} loading={opening}>
                     {webhookStatus?.is_active ? 'เปิดรอบใหม่' : 'เปิดรอบรับฟอร์ม'}

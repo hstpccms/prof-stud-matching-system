@@ -43,6 +43,7 @@ class ImportSession(Base):
     file_path = Column(String)
     status = Column(String, default="pending")  # pending|imported|validated|failed
     # ── Webhook / Forms fields ────────────────────────────────────────────────
+    program                = Column(String, nullable=True)    # None = legacy/shared session, หรือระบุหลักสูตรเฉพาะ
     is_active              = Column(Boolean, default=False)   # True = กำลังรับข้อมูลจากฟอร์มอยู่
     source                 = Column(String, default="excel")  # "excel" | "forms"
     expected_counts        = Column(Text, default="{}")       # JSON string {"program": {"students": X, "profs": Y}}

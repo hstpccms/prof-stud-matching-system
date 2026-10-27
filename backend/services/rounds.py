@@ -11,14 +11,9 @@ from sqlalchemy.orm import Session
 import models
 
 
-def get_active_round(db: Session) -> models.ImportSession:
-    """ดึงรอบที่กำลังเปิดรับฟอร์มอยู่ — raise 404 ถ้าไม่มี"""
-    session = (
-        db.query(models.ImportSession)
-        .filter_by(is_active=True, source="web")
-        .order_by(models.ImportSession.uploaded_at.desc())
-        .first()
-    )
+def get_active_round(db: Session, program: Optional[str] = None) -> models.ImportSession:
+    """ดึงรอบที่กำลังเปิดรับฟอร์มอยู่ (แยกตามหลักสูตร หรือ session รวม) — raise 404 ถ้าไม่มี"""
+    session = get_active_round_optional(db, program=program)
     if not session:
         raise HTTPException(
             status_code=404,
@@ -27,14 +22,28 @@ def get_active_round(db: Session) -> models.ImportSession:
     return session
 
 
-def get_active_round_optional(db: Session) -> Optional[models.ImportSession]:
+def get_active_round_optional(db: Session, program: Optional[str] = None) -> Optional[models.ImportSession]:
     """เหมือน get_active_round แต่คืน None แทนการ raise (ใช้กับหน้าสถานะ)"""
-    return (
-        db.query(models.ImportSession)
-        .filter_by(is_active=True, source="web")
-        .order_by(models.ImportSession.uploaded_at.desc())
-        .first()
-    )
+    q = db.query(models.ImportSession).filter_by(is_active=True, source="web")
+    if program:
+        # 1. หากมี session เฉพาะของหลักสูตรนี้ ให้ใช้ session นั้น
+        prog_session = (
+            q.filter(models.ImportSession.program == program)
+            .order_by(models.ImportSession.uploaded_at.desc())
+            .first()
+        )
+        if prog_session:
+            return prog_session
+        # 2. หากไม่มี ให้ fallback ไปยัง session รวม (program=None)
+        shared_session = (
+            q.filter(models.ImportSession.program == None)
+            .order_by(models.ImportSession.uploaded_at.desc())
+            .first()
+        )
+        if shared_session:
+            return shared_session
+        return None
+    return q.order_by(models.ImportSession.uploaded_at.desc()).first()
 
 
 def matching_started(db: Session, session_id: int) -> bool:
